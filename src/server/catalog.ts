@@ -81,10 +81,20 @@ export function searchCatalog(filters: CatalogFilters): CatalogResult {
   return { products };
 }
 
+// 결과가 없을 때 이유를 구분한다: 판매하지 않는 품목, 해당 사이즈만 품절, 그 밖의 조건 불일치.
+function emptyCatalogAnswer(filters: CatalogFilters) {
+  if (filters.category === "other") return "찾는 품목은 Style Shop 판매 목록에 없어요. 지금은 재킷, 셔츠, 팬츠를 판매해요.";
+  if (filters.size) {
+    const names = searchCatalog({ ...filters, size: undefined }).products.map((product) => product.name);
+    if (names.length) return `${names.join(", ")}의 ${filters.size} 사이즈는 지금 품절이에요.`;
+  }
+  return "조건에 맞는 상품이 없어요. 가격이나 사이즈 조건을 바꿔보세요.";
+}
+
 export function catalogAnswer(filters: CatalogFilters) {
   const catalog = searchCatalog(filters);
   return {
-    answer: catalog.products.length ? "조건에 맞는 상품 " + catalog.products.length + "개를 찾았어요." : "조건에 맞는 상품이 없어요. 가격이나 사이즈 조건을 바꿔보세요.",
+    answer: catalog.products.length ? "조건에 맞는 상품 " + catalog.products.length + "개를 찾았어요." : emptyCatalogAnswer(filters),
     sources: [],
     abstained: false,
     catalog,

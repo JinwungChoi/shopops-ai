@@ -170,7 +170,7 @@ export async function answerMessage(sessionId: string, token: string, requestId:
       }
     }
     if (workflowPolicy && !result.sources.length) {
-      result = { ...result, answer: "추가 정책 질문은 확인할 근거를 찾지 못했어요.\n\n" + result.answer };
+      result = { ...result, answer: "정책 문의는 등록된 근거를 찾지 못했어요.\n\n" + result.answer };
     }
     const toolUsed = result.toolUsed;
     const { data: saved, error: saveError } = await client.from("chat_messages").insert({

@@ -5,7 +5,7 @@ import type { ReportProgress } from "@/lib/chat-progress";
 import type { ActionDecision, Answer } from "@/lib/demo";
 import { orderReference, reasonLabels, type ActionIntent, type AgentState } from "./agent-intent";
 import { DemoError } from "./demo-core";
-import { findActionOrders } from "./mock-orders";
+import { findActionOrders, returnEligibilityOf } from "./mock-orders";
 import { serverClient } from "./supabase";
 
 type Scope = { tenantId: string; sessionId: string; customerId?: string };
@@ -34,6 +34,7 @@ const State = Annotation.Root({
   checkpoint: Annotation<AgentState | undefined>(),
   candidate: Annotation<Candidate | undefined>(),
   result: Annotation<Answer | undefined>(),
+  notice: Annotation<string | undefined>(),
 });
 
 type GraphState = typeof State.State;
@@ -81,6 +82,17 @@ async function locate({ scope, question, intent, prior, lastOrder, report }: Gra
   }
   const candidate = orders[0];
   checkpoint.reference = candidate?.summary.reference ?? null;
+  if (intent.intent === "return" && !reason && candidate) {
+    // 사유를 묻기 전에 서버 판정을 먼저 확인한다. 신청할 수 없는 주문에는 사유를 묻지 않는다.
+    const eligibility = await returnEligibilityOf(scope.tenantId, customerId, candidate.summary.reference);
+    if (eligibility === "not_delivered" || eligibility === "already_submitted") {
+      return { checkpoint: { ...checkpoint, waiting: "closed" }, candidate, result: message(statusMessages[eligibility], {
+        toolUsed: "check_return_eligibility" }) };
+    }
+    if (eligibility === "too_late" || eligibility === "review") {
+      return { checkpoint: { ...checkpoint, reason: "policy_review" }, candidate, notice: statusMessages[eligibility] };
+    }
+  }
   if (intent.intent === "return" && !reason) {
     checkpoint.waiting = "reason";
     return { checkpoint, candidate, result: message(`${candidate.summary.name} 반품 사유를 알려주세요.`, {
@@ -90,7 +102,7 @@ async function locate({ scope, question, intent, prior, lastOrder, report }: Gra
   return { checkpoint, candidate };
 }
 
-async function prepare({ scope, checkpoint, candidate }: GraphState): Promise<Partial<GraphState>> {
+async function prepare({ scope, checkpoint, candidate, notice }: GraphState): Promise<Partial<GraphState>> {
   if (!checkpoint) return {};
   const reason = checkpoint.reason ?? "staff_requested";
   const kind = checkpoint.intent === "return" && reason === "change_of_mind" ? "return" : "support";
@@ -105,7 +117,7 @@ async function prepare({ scope, checkpoint, candidate }: GraphState): Promise<Pa
   let proposal = await prepareAction(kind, reason);
   let action: "return" | "support" = kind;
   let label = reasonLabels[reason];
-  let explanation = "";
+  let explanation = notice ? notice + " " : "";
   if (kind === "return" && (proposal.status === "review" || proposal.status === "too_late")) {
     explanation = statusMessages[proposal.status] + " ";
     proposal = await prepareAction("support", "policy_review");

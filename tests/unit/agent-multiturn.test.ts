@@ -74,7 +74,7 @@ const fakeClient = {
     const query = {
       select: () => query,
       eq: (column: string, value: string) => {
-        const key = ({ tenant_id: "tenant", customer_user_id: "customer", order_reference: "ref" } as const)[column];
+        const key = ({ tenant_id: "tenant", customer_user_id: "customer", order_reference: "ref", status: "status" } as const)[column];
         if (!key) throw new Error("unexpected column " + column);
         filters.push((row) => row[key] === value);
         return query;
@@ -144,7 +144,7 @@ beforeEach(() => {
 
 describe("주문 내역 → 그중 반품 가능 + 반품비 → 제외 사유", () => {
   it("이전 턴의 주문 범위로 가능한 주문만 카드로 돌려주고, 건수·카드·비용 출처가 같은 결과에서 나온다", async () => {
-    const history = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: {} }, finish]);
+    const history = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: { status: null } }, finish]);
     expect(history.result.toolUsed).toBe("list_orders");
     const shown = refs(history.result.orders);
     expect(shown).toHaveLength(12);
@@ -185,7 +185,7 @@ describe("주문 내역 → 그중 반품 가능 + 반품비 → 제외 사유",
 
   // 모델 대본이 질문을 읽지 않으므로 표현 다양성 자체는 검증하지 않는다(실제 모델 2단계 범위).
   it("같은 이전 주문 범위로 다시 물어도 서버 결과는 같은 카드를 만든다", async () => {
-    const history = await chat("뭐 샀는지 목록 좀", [{ name: "list_orders", args: {} }, finish]);
+    const history = await chat("뭐 샀는지 목록 좀", [{ name: "list_orders", args: { status: null } }, finish]);
     const route: AgentRoute = { name: "list_returnable_orders", args: { scope: "previous_orders", orderReference: null, productHint: null } };
     const results = [];
     for (const question of ["아까 보여준 주문 중에 반품되는 거 뭐야?", "거기서 지금 환불 보낼 수 있는 옷만 골라줘"]) {
@@ -207,7 +207,7 @@ describe("주문 내역 → 그중 반품 가능 + 반품비 → 제외 사유",
 
 describe("서버 바인딩 경계", () => {
   it("질문과 조회 결과에 없는 주문번호를 모델이 넣어도 무시하고 다른 고객 주문을 반환하지 않는다", async () => {
-    const history = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: {} }, finish]);
+    const history = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: { status: null } }, finish]);
     const result = await chat("이 주문은 왜 빠졌어?", [{ name: "check_order_return_status",
       args: { scope: "all_orders", orderReference: "STY-2001", productHint: null } }, finish], history.result.orders);
     expect(rpcCalls.at(-1)?.args).toMatchObject({ p_tenant: tenantId, p_customer: customerA, p_reference: null });
@@ -224,7 +224,7 @@ describe("서버 바인딩 경계", () => {
   });
 
   it("로그인하지 않은 고객에게는 주문 조회 없이 로그인을 안내한다", async () => {
-    const result = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: {} }, finish], undefined, null);
+    const result = await chat("내 주문 내역 보여줘", [{ name: "list_orders", args: { status: null } }, finish], undefined, null);
     expect(rpcCalls).toHaveLength(0);
     expect(result.result).toMatchObject({ abstained: true, orders: undefined });
   });
@@ -267,3 +267,58 @@ describe("반품 요청 → 고객 확인 → 접수", () => {
     expect(rpcCalls).toHaveLength(0);
   });
 });
+
+describe("일반 쇼핑몰 문의 회귀", () => {
+  it("배송 상태로 좁힌 주문 목록은 건수와 카드가 같은 결과에서 나온다", async () => {
+    const result = await chat("지금 배송 중인 주문 있어?", [{ name: "list_orders", args: { status: "in_transit" } }, finish]);
+    expect(refs(result.result.orders)).toEqual(["STY-1001"]);
+    expect(result.result.answer).toBe("배송 중인 주문 1건이에요.");
+    const none = await chat("출고 전 주문 있어?", [{ name: "list_orders", args: { status: "preparing" } }, finish]);
+    expect(refs(none.result.orders)).toEqual([]);
+    expect(none.result.answer).toBe("출고 준비 중인 주문은 없어요.");
+  });
+
+  it("도구 없이 끝난 인사에는 주문번호 대신 도움말을 보여준다", async () => {
+    const result = await chat("안녕하세요", [{ name: "finish", args: { outcome: "clarify" } }]);
+    expect(result.result.answer).toContain("무엇을 확인할까요?");
+    expect(result.result.answer).not.toContain("주문번호");
+  });
+
+  it("로그인이 필요한 조회만 보류되면 정책 답변이 주 답변이 된다", async () => {
+    policyAnswer.mockResolvedValueOnce({ answer: "등록된 정책에서 답변 근거를 찾지 못했어요.", sources: [], abstained: true });
+    const result = await chat("무통장 입금도 되나요?", [{ name: "search_policies", args: { query: "무통장 입금" } },
+      { name: "offer_support", args: { orderReference: null, productHint: null, reason: "staff_requested" } }, finish], undefined, null);
+    expect(result.supplementaryPolicy).toBeUndefined();
+    expect(result.result.answer.startsWith("등록된 정책에서 답변 근거를 찾지 못했어요.")).toBe(true);
+    expect(result.result.abstained).toBe(true);
+  });
+
+  it("반품 기한이 지난 주문은 사유를 묻지 않고 상담 확인으로 넘긴다", async () => {
+    const result = await chat("STY-1008 반품해줘", [{ name: "prepare_return",
+      args: { orderReference: "STY-1008", productHint: null, reason: null } }, finish]);
+    expect(result.result.action).toMatchObject({ kind: "approval", action: "support" });
+    expect(result.result.answer).toContain("수령 후 7일이 지나");
+    expect(rpcCalls.find(({ name }) => name === "prepare_agent_action")?.args).toMatchObject({ p_kind: "support", p_reason: "policy_review" });
+  });
+
+  it("배송 전 주문은 사유를 묻거나 접수 초안을 만들지 않는다", async () => {
+    const result = await chat("STY-1001 반품할래요", [{ name: "prepare_return",
+      args: { orderReference: "STY-1001", productHint: null, reason: null } }, finish]);
+    expect(result.result.answer).toContain("아직 배송 완료 전이에요.");
+    expect(result.result.action).toBeUndefined();
+    expect(rpcCalls.map(({ name }) => name)).not.toContain("prepare_agent_action");
+  });
+
+  it("직전 반품 가능 목록 밖의 상품을 지목해 이유를 물으면 같은 고객의 전체 주문에서 판정을 찾는다", async () => {
+    const listed = await chat("반품 가능한 주문 보여줘", [{ name: "list_returnable_orders",
+      args: { scope: "all_orders", orderReference: null, productHint: null } }, finish]);
+    expect(refs(listed.result.orders)).toEqual(["STY-1002", "STY-1003", "STY-1006"]);
+    const why = await chat("블랙 트윌 재킷은 왜 안 돼?", [{ name: "check_order_return_status",
+      args: { scope: "previous_orders", orderReference: null, productHint: "블랙 트윌 재킷" } }, finish], listed.result.orders);
+    expect(rpcCalls.slice(-2).map(({ args }) => args.p_presented)).toEqual([["STY-1002", "STY-1003", "STY-1006"], null]);
+    expect(rpcCalls.at(-1)?.args).toMatchObject({ p_tenant: tenantId, p_customer: customerA });
+    expect(refs(why.result.orders)).toEqual(["STY-1001"]);
+    expect(why.result.answer).toContain("아직 배송 완료 전이에요.");
+  });
+});
+

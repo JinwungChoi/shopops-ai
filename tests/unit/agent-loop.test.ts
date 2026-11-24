@@ -17,7 +17,7 @@ it("주문 조회 결과를 모델에 전달하고 모델이 선택한 정책 �
 });
 
 it("반복된 도구를 다시 실행하지 않고 네 결정에서 종료한다", async () => {
-  const select = vi.fn<() => Promise<AgentRoute>>().mockResolvedValue({ name: "list_orders", args: {} });
+  const select = vi.fn<() => Promise<AgentRoute>>().mockResolvedValue({ name: "list_orders", args: { status: null } });
   const execute = vi.fn().mockResolvedValue({ orders: [] });
   await expect(runAgentLoop(select, execute)).resolves.toBe("incomplete");
   expect(execute).toHaveBeenCalledTimes(1);

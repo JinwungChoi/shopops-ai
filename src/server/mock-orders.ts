@@ -74,13 +74,25 @@ export async function listReturnEligibility(tenantId: string, customerId: string
     orders: { kind: "return_eligibility", items } };
 }
 
-export async function listOrders(tenantId: string, customerId: string): Promise<Answer> {
-  const { data, error } = await ordersFor(tenantId, customerId)
+// status가 있으면 DB에서 해당 배송 상태만 조회한다. 답변 건수와 카드는 같은 결과에서 만든다.
+// 한 주문의 현재 반품 판정만 DB 함수로 확인한다. 고객 범위는 호출자가 서버에서 바인딩한다.
+export async function returnEligibilityOf(tenantId: string, customerId: string, reference: string) {
+  const { data, error } = await serverClient().rpc("list_mock_return_eligibility", {
+    p_tenant: tenantId, p_customer: customerId, p_reference: reference, p_product_hint: null, p_presented: null,
+  });
+  if (error) throw new DemoError(502, "주문별 반품 가능 여부를 확인하지 못했어요.");
+  return z.array(returnOrderSchema).parse(data)[0]?.eligibility ?? null;
+}
+
+export async function listOrders(tenantId: string, customerId: string, status: OrderRow["status"] | null = null): Promise<Answer> {
+  const scoped = ordersFor(tenantId, customerId);
+  const { data, error } = await (status ? scoped.eq("status", status) : scoped)
     .order("ordered_at", { ascending: false }).order("id", { ascending: false }).limit(20);
   if (error) throw new DemoError(502, "주문 내역을 조회하지 못했어요.");
   const orders = z.array(orderSchema).parse(data).map(toSummary);
+  const label = status ? `${statusLabels[status]}인 주문` : "최근 주문";
   return {
-    answer: orders.length ? `최근 주문 ${orders.length}건이에요.` : "조회할 주문 내역이 없어요.",
+    answer: orders.length ? `${label} ${orders.length}건이에요.` : status ? `${statusLabels[status]}인 주문은 없어요.` : "조회할 주문 내역이 없어요.",
     orders: { kind: "history", items: orders }, sources: [], abstained: false, toolUsed: "list_orders",
   };
 }

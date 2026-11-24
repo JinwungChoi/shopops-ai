@@ -19,6 +19,8 @@ const orderContext = z.union([
   z.object({ kind: z.literal("shipment"), order: orderContextSchema }),
 ]);
 
+const helpPrompt = "Style Shop의 주문·배송·반품, 상품, 쇼핑몰 정책을 안내해 드려요. 무엇을 확인할까요?";
+
 export function presentedOrders(value: unknown): PresentedOrder[] {
   const data = orderContext.safeParse(value).data;
   return !data ? [] : data.kind === "shipment" ? [data.order] : data.items;
@@ -84,18 +86,24 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
       report?.(progress);
       switch (tool.name) {
         case "list_orders":
-          orderResult = await listOrders(tenantId, customerId);
+          orderResult = await listOrders(tenantId, customerId, tool.args.status);
           break;
         case "track_shipment":
           orderResult = await trackShipment(tenantId, customerId, reference, productHint);
           break;
         case "list_returnable_orders":
-        case "check_order_return_status":
-          orderResult = await listReturnEligibility(tenantId, customerId, {
-            reference, productHint, presented: tool.args.scope === "previous_orders" ? currentOrders.map((order) => order.reference) : null,
-            view: tool.name === "list_returnable_orders" ? "eligible_only" : "order_statuses",
-          });
+        case "check_order_return_status": {
+          const lookup = { reference, productHint,
+            view: tool.name === "list_returnable_orders" ? "eligible_only" as const : "order_statuses" as const };
+          const presented = tool.args.scope === "previous_orders" ? currentOrders.map((order) => order.reference) : null;
+          orderResult = await listReturnEligibility(tenantId, customerId, { ...lookup, presented });
+          // 제외 사유는 직전 목록 밖의 주문에 대해 묻는 경우가 많다. 지목한 주문이 범위에 없으면 같은 고객의 전체 주문에서 찾는다.
+          const missing = orderResult.orders?.kind === "return_eligibility" && orderResult.orders.items.length === 0;
+          if (tool.name === "check_order_return_status" && presented && (reference || productHint) && (missing || !orderResult.orders)) {
+            orderResult = await listReturnEligibility(tenantId, customerId, { ...lookup, presented: null });
+          }
           break;
+        }
       }
     }
     const observed = presentedOrders(orderResult.orders);
@@ -112,9 +120,11 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     sources: citations, abstained: false, toolUsed: "search_policies" as const,
   } : policies[0];
   const answers = [orderResult, catalogResult, workflowResult?.answer].filter((answer) => answer !== undefined);
-  const primary = answers.at(-1);
+  // 조회 도구가 모두 보류(로그인 필요 등)이고 정책 답변이 있으면 정책을 주 답변으로 둔다.
+  const policyLeads = policy !== undefined && answers.every((answer) => answer.abstained);
+  const primary = policyLeads ? undefined : answers.at(-1);
   const clarification = status === "clarify" && !workflowResult?.answer.action
-    ? "확인할 주문번호나 상품명을 알려주세요." : undefined;
+    ? answers.length ? "확인할 주문번호나 상품명을 알려주세요." : helpPrompt : undefined;
   const incomplete = status === "incomplete" && !workflowResult?.answer.action
     ? "추가 확인이 필요한 내용은 다시 물어봐 주세요." : undefined;
   const result: Answer | undefined = primary ? {
@@ -122,8 +132,10 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     answer: [...new Set([...answers.map((entry) => entry.answer), clarification, incomplete].filter(Boolean))].join("\n\n"),
     orders: orderResult?.orders, catalog: catalogResult?.catalog,
     abstained: answers.every((answer) => answer.abstained),
-  } : policy ?? {
-    answer: clarification ?? "어떤 내용을 확인할지 조금 더 자세히 알려주세요.",
+  } : policy ? {
+    ...policy, answer: [policy.answer, ...answers.map((entry) => entry.answer)].join("\n\n"),
+  } : {
+    answer: clarification ?? helpPrompt,
     sources: [], abstained: true,
   };
   return { result, supplementaryPolicy: primary ? policy : undefined, filters: nextFilters, checkpoint: workflowResult?.checkpoint };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catalogQuery, searchCatalog } from "@/server/catalog";
+import { catalogAnswer, catalogQuery, searchCatalog } from "@/server/catalog";
 
 describe("Style Shop 카탈로그 조회", () => {
   it("가격과 색상 조건으로 검색하고 원화 상한을 반영한다", () => {
@@ -19,5 +19,11 @@ describe("Style Shop 카탈로그 조회", () => {
   it("다른 쇼핑몰·지원하지 않는 카테고리에는 Style Shop 상품을 보여주지 않는다", () => {
     expect(catalogQuery("다른 쇼핑몰 신상 재킷 보여줘")).toBeUndefined();
     expect(searchCatalog(catalogQuery("신상 패딩 보여줘")!).products).toEqual([]);
+  });
+
+  it("결과가 없을 때 판매하지 않는 품목과 사이즈 품절을 구분해 안내한다", () => {
+    expect(catalogAnswer({ category: "jacket", color: "black", size: "L" }).answer).toBe("블랙 트윌 재킷의 L 사이즈는 지금 품절이에요.");
+    expect(catalogAnswer({ category: "other" }).answer).toContain("판매 목록에 없어요");
+    expect(catalogAnswer({ category: "jacket", newOnly: true, maxPrice: 59999 }).answer).toBe("조건에 맞는 상품이 없어요. 가격이나 사이즈 조건을 바꿔보세요.");
   });
 });
