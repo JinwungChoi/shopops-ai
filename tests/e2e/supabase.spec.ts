@@ -40,12 +40,11 @@ test("반품 접수 승인·새로고침·재시도와 상담 문의 이관", as
       product_name: "검증 배송 중 팬츠", ordered_at: new Date().toISOString(), status: "in_transit", quantity: 1,
     });
     expect(preparing.error).toBeNull();
+    // 시연 버튼은 데모 고객 A·B만 전환한다. 테스트 전용 고객은 같은 API로 로그인한 뒤 채팅을 연다.
+    const login = await page.request.post("/api/public/customer", { data: { action: "login", email, password } });
+    expect(login.status()).toBe(200);
     await page.goto("/chat/" + widget);
-    await page.getByText("고객 로그인", { exact: true }).click();
-    await page.getByLabel("이메일", { exact: true }).fill(email);
-    await page.getByLabel("비밀번호", { exact: true }).fill(password);
-    await page.getByRole("button", { name: "로그인", exact: true }).click();
-    await expect(page.getByText("데모 고객 연결됨")).toBeVisible();
+    await expect(page.getByRole("button", { name: "비로그인", exact: true })).toHaveAttribute("aria-pressed", "false");
     const ask = async (question: string) => {
       await page.getByRole("textbox", { name: "질문", exact: true }).fill(question);
       await page.getByRole("button", { name: "질문 보내기" }).click();
@@ -237,11 +236,8 @@ test("Style Shop 모델 도구 선택과 고객별 모의 주문 격리", async 
   const page = await context.newPage();
   try {
     await page.goto("/chat/" + widget);
-    await page.getByText("고객 로그인", { exact: true }).click();
-    await page.getByLabel("이메일", { exact: true }).fill("style-customer-a@example.com");
-    await page.getByLabel("비밀번호", { exact: true }).fill("StyleShop-Demo-2026!");
-    await page.getByRole("button", { name: "로그인", exact: true }).click();
-    await expect(page.getByText("데모 고객 연결됨")).toBeVisible();
+    await page.getByRole("button", { name: "고객 A", exact: true }).click();
+    await expect(page.getByRole("button", { name: "고객 A", exact: true })).toHaveAttribute("aria-pressed", "true");
 
     const newSession = page.waitForResponse((response) => response.url().endsWith("/api/public/sessions") && response.status() === 201);
     const ask = async (content: string, toolUsed: string, extraStage?: string) => {
@@ -310,9 +306,8 @@ test("Style Shop 모델 도구 선택과 고객별 모의 주문 격리", async 
     const headers = { Authorization: "Bearer " + session.sessionToken };
     expect((await page.request.get(history, { headers })).status()).toBe(200);
     expect((await request.get(history, { headers })).status()).toBe(401);
-    await page.getByText("데모 고객 연결됨").click();
-    await page.getByRole("button", { name: "로그아웃" }).click();
-    await expect(page.getByText("고객 로그인", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "비로그인", exact: true }).click();
+    await expect(page.getByRole("button", { name: "비로그인", exact: true })).toHaveAttribute("aria-pressed", "true");
     expect((await page.request.get(history, { headers })).status()).toBe(401);
     const otherCustomer = await page.request.post("/api/public/customer", { data: {
       action: "login", email: "style-customer-b@example.com", password: "StyleShop-Demo-2026!",

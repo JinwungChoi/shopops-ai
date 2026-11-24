@@ -133,52 +133,50 @@ export function PublicWidget({ widgetKey, name, catalogEnabled = false, customer
   </div></div>;
 }
 
+type DemoCustomer = "a" | "b" | null;
+const demoChoices: { key: DemoCustomer; label: string }[] = [
+  { key: null, label: "비로그인" }, { key: "a", label: "고객 A" }, { key: "b", label: "고객 B" },
+];
+
+// 시연용 합성 고객을 버튼으로 전환한다. 전환하면 새 대화를 연다.
 function CustomerAccess({ onChange }: { onChange: () => void }) {
-  const [signedIn, setSignedIn] = useState(false);
+  const [current, setCurrent] = useState<DemoCustomer | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const disclosure = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     let active = true;
-    request<{ loggedIn: boolean }>("/api/public/customer")
-      .then(({ loggedIn }) => { if (active) setSignedIn(loggedIn); })
-      .catch(() => {});
+    request<{ loggedIn: boolean; customer: DemoCustomer }>("/api/public/customer")
+      .then(({ customer }) => { if (active) setCurrent(customer); })
+      .catch(() => { if (active) setCurrent(null); });
     return () => { active = false; };
   }, []);
 
-  async function authenticate(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const form = event ? new FormData(event.currentTarget) : null;
-    const command = form
-      ? { action: "login", email: form.get("email"), password: form.get("password") }
-      : { action: "logout" };
+  async function choose(next: DemoCustomer) {
+    if (next === current) return;
     setBusy(true);
     setError("");
     try {
-      const result = await request<{ loggedIn: boolean }>("/api/public/customer", json("POST", command));
-      setSignedIn(result.loggedIn);
-      if (disclosure.current) disclosure.current.open = false;
+      if (current) await request("/api/public/customer", json("POST", { action: "logout" }));
+      const result = next
+        ? await request<{ customer: DemoCustomer }>("/api/public/customer", json("POST", { action: "demo", customer: next }))
+        : { customer: null };
+      setCurrent(result.customer);
       onChange();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "고객 인증에 실패했어요.");
+      setError(error instanceof Error ? error.message : "고객 전환에 실패했어요.");
     } finally {
       setBusy(false);
     }
   }
 
-  return <details className="customer-access" ref={disclosure}>
-    <summary className="button secondary">{signedIn ? "데모 고객 연결됨" : "고객 로그인"}</summary>
-    <div className="customer-popover">
-      {signedIn ? <Button className="secondary" disabled={busy} onClick={() => void authenticate()}>로그아웃</Button>
-        : <form onSubmit={authenticate}>
-          <label>이메일<input name="email" type="email" autoComplete="email" required /></label>
-          <label>비밀번호<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
-          <Button className="primary" type="submit" disabled={busy}>로그인</Button>
-        </form>}
-      {error && <p className="error" role="alert">{error}</p>}
+  return <div className="customer-access">
+    <div className="customer-switch" role="group" aria-label="데모 고객 전환">
+      {demoChoices.map((choice) => <button key={choice.label} type="button" aria-pressed={current === choice.key}
+        disabled={busy || current === undefined} onClick={() => void choose(choice.key)}>{choice.label}</button>)}
     </div>
-  </details>;
+    {error && <p className="error customer-error" role="alert">{error}</p>}
+  </div>;
 }
 
 const toolLabels: Record<AgentTool, string> = {

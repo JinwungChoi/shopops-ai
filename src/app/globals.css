@@ -311,3 +311,11 @@ button:disabled { cursor: default; }
 .product-options > li:has(.size-pick) { padding: 0; }
 .size-pick { padding: 2px 8px; border-radius: 5px; font-size: 11px; cursor: pointer; transition: background .16s, color .16s; }
 .size-pick:hover, .size-pick:focus-visible { background: var(--foreground); color: var(--background); }
+
+/* 데모 고객 전환 버튼 */
+.customer-switch { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.customer-switch button { min-height: 30px; padding: 4px 10px; border-radius: 6px; color: var(--muted); font-size: 12px; font-weight: 650; transition: background .16s, color .16s; }
+.customer-switch button:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--foreground); }
+.customer-switch button[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+.customer-switch button:disabled { cursor: default; }
+.customer-error { position: absolute; right: 0; top: calc(100% + 6px); white-space: nowrap; }
