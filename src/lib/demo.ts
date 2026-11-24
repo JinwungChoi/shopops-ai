@@ -28,13 +28,17 @@ export type ProductCard = {
 export type CatalogResult = { products: ProductCard[] };
 export type AgentTool = "search_policies" | "search_products" | "get_order_status" | "list_orders" | "track_shipment"
   | "check_return_eligibility" | "submit_return_request" | "create_support_ticket"
-  | "get_product" | "view_cart" | "update_cart" | "prepare_checkout" | "place_order";
+  | "get_product" | "view_cart" | "update_cart" | "prepare_checkout" | "place_order"
+  | "list_addresses" | "prepare_order_change" | "change_order";
 export type CartLine = { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number };
 export type CartResult = { lines: CartLine[]; subtotal: number; shippingFee: number; total: number };
 export type ProductDetail = { id: string; name: string; price: number; material: string; fit: string; care: string;
   image: string | null; options: { size: string; stock: number }[] };
+export type OrderChangeKind = "cancel" | "address" | "exchange";
+export type OrderChangeDetail = { addressId?: string; label?: string; summary?: string; size?: string; fromSize?: string | null };
+export type SavedAddress = { id: string; label: string; summary: string; isDefault: boolean };
 export type OrderSummary = { reference: string; name: string; orderedAt: string; status: string; quantity: number; total: number | null };
-export type ReturnEligibility = "eligible" | "not_delivered" | "too_late" | "already_submitted" | "review";
+export type ReturnEligibility = "eligible" | "not_delivered" | "too_late" | "already_submitted" | "review" | "canceled";
 export type OrderResult =
   | { kind: "history"; items: OrderSummary[] }
   | { kind: "return_eligibility"; items: (OrderSummary & { eligibility: ReturnEligibility })[] }
@@ -47,7 +51,9 @@ export type AgentAction =
   | { kind: "approval"; id: string; action: "return" | "support"; reason: string; expiresAt: string;
       order?: OrderSummary; quantity: number | null; fee: number | null }
   | { kind: "checkout"; id: string; expiresAt: string; cart: CartResult }
-  | { kind: "receipt"; action: "return" | "support" | "checkout"; id: string; approvalId: string; orders?: string[]; total?: number }
+  | { kind: "change"; id: string; change: OrderChangeKind; expiresAt: string; order: OrderSummary; detail: OrderChangeDetail }
+  | { kind: "addresses"; items: SavedAddress[] }
+  | { kind: "receipt"; action: "return" | "support" | "checkout" | OrderChangeKind; id: string; approvalId: string; orders?: string[]; total?: number }
   | { kind: "closed"; approvalId: string };
 export type Answer = { answer: string; sources: Source[]; abstained: boolean; catalog?: CatalogResult; toolUsed?: AgentTool; orders?: OrderResult; action?: AgentAction;
   cart?: CartResult; product?: ProductDetail };

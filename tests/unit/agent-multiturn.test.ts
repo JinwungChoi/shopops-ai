@@ -18,6 +18,13 @@ const sessionId = "33333333-3333-4333-8333-333333333333";
 const approvalId = "55555555-5555-4555-8555-555555555555";
 const receiptId = "66666666-6666-4666-8666-666666666666";
 const checkoutId = "88888888-8888-4888-8888-888888888888";
+const changeId = "99999999-9999-4999-8999-999999999991";
+const homeId = "99999999-9999-4999-8999-999999999992";
+const officeId = "99999999-9999-4999-8999-999999999993";
+const savedAddresses = [
+  { id: homeId, label: "집", summary: "서울 마포구 (합성 주소)", isDefault: true },
+  { id: officeId, label: "회사", summary: "서울 중구 (합성 주소)", isDefault: false },
+];
 
 // 고객 A 12건(최신순), 고객 B와 다른 업체 주문은 같은 판정이어도 결과에 섞이면 안 된다.
 const a = (ref: string, name: string, status: Row["status"], eligibility: Eligibility, day: number): Row =>
@@ -62,6 +69,15 @@ const fakeClient = {
       return { data: args.p_confirm ? { status: "confirmed", kind: "return", receipt: receiptId } : { status: "canceled" }, error: null };
     }
     // 장바구니·주문 RPC도 응답 형식만 흉내 낸다. 재고·가격·중복 판정은 pgTAP(shopping.sql)가 검증한다.
+    // 주문 변경 RPC도 응답 형식만 흉내 낸다. 상태·기간·재고·소유권 판정은 pgTAP(order_changes.sql)가 검증한다.
+    if (name === "list_mock_addresses") return { data: savedAddresses, error: null };
+    if (name === "prepare_order_change") {
+      if (args.p_kind === "address" && !args.p_address) return { data: { status: "address_missing" }, error: null };
+      if (args.p_kind === "exchange" && !args.p_size) return { data: { status: "size_missing", sizes: ["L", "M", "S"] }, error: null };
+      const detail = args.p_kind === "address" ? { addressId: args.p_address, label: "회사", summary: "서울 중구 (합성 주소)" }
+        : args.p_kind === "exchange" ? { size: args.p_size, fromSize: "M" } : {};
+      return { data: { status: "pending", id: changeId, expiresAt: "2026-11-25T12:10:00+00:00", detail }, error: null };
+    }
     if (name === "update_mock_cart") {
       return { data: { status: "ok", cart: { lines: [{ productId: args.p_product, name: "블랙 트윌 재킷", size: args.p_size,
         quantity: args.p_quantity, unitPrice: 69000, lineTotal: 69000 * (args.p_quantity as number) }],
@@ -360,6 +376,62 @@ describe("장바구니와 모의 주문", () => {
     expect(rpcCalls).toHaveLength(0);
     expect(result.result).toMatchObject({ abstained: true });
     expect(result.result.answer).toContain("로그인");
+  });
+});
+
+describe("주문 취소·배송지 변경·교환", () => {
+  const change = (kind: "cancel" | "address" | "exchange", addressId: string | null = null, size: "L" | null = null) =>
+    ({ name: "prepare_order_change", args: { kind, orderReference: "STY-1001", productHint: null, addressId, size } } as const);
+
+  it("취소는 확인 카드까지만 만들고 실행 RPC를 부르지 않는다", async () => {
+    const result = await chat("STY-1001 주문 취소해줘", [change("cancel"), finish]);
+    expect(rpcCalls.map(({ name }) => name)).toEqual(["prepare_order_change"]);
+    expect(rpcCalls[0].args).toMatchObject({ p_tenant: tenantId, p_session: sessionId, p_customer: customerA,
+      p_order: "00000000-0000-4000-8000-000000001001", p_kind: "cancel" });
+    expect(result.result.action).toMatchObject({ kind: "change", id: changeId, change: "cancel", order: { reference: "STY-1001" } });
+    expect(result.checkpoint).toMatchObject({ intent: "cancel", waiting: "approval", approvalId: changeId, approvalKind: "cancel" });
+    expect(JSON.stringify(modelTurns[0].observations)).not.toContain(changeId);
+  });
+
+  it("이번 턴에 조회하지 않은 배송지 ID는 버리고 저장 배송지 목록을 보여준다", async () => {
+    const result = await chat("STY-1001 배송지 회사로 바꿔줘", [change("address", "12345678-1234-4234-8234-123456789012"), finish]);
+    // 버린 ID 대신 null로 DB 판정을 먼저 받고, 통과하면 저장 배송지 목록을 보여준다.
+    expect(rpcCalls.map(({ name }) => name)).toEqual(["prepare_order_change", "list_mock_addresses"]);
+    expect(rpcCalls[0].args).toMatchObject({ p_kind: "address", p_address: null });
+    expect(result.result.action).toMatchObject({ kind: "addresses", items: [{ label: "집" }, { label: "회사" }] });
+    expect(result.checkpoint).toMatchObject({ intent: "address", reference: "STY-1001", waiting: "order" });
+  });
+
+  it("같은 턴에 조회한 배송지 ID로만 배송지 변경 카드를 만든다", async () => {
+    const result = await chat("STY-1001 배송지 회사로 바꿔줘", [{ name: "list_addresses", args: {} }, change("address", officeId), finish]);
+    expect(rpcCalls.map(({ name }) => name)).toEqual(["list_mock_addresses", "prepare_order_change"]);
+    expect(rpcCalls[1].args).toMatchObject({ p_kind: "address", p_address: officeId });
+    expect(result.result.action).toMatchObject({ kind: "change", change: "address", detail: { label: "회사" } });
+  });
+
+  it("질문에 상품명이 있으면 모델이 이전 주문번호를 넣어도 상품명으로 주문을 찾는다", async () => {
+    const shown: OrderResult = { kind: "history", items: [{ reference: "STY-1001", name: "블랙 트윌 재킷", orderedAt: "2026-10-22T03:00:00Z",
+      status: "배송 중", quantity: 1, total: 40000 }] };
+    await chat("차콜 플리츠 팬츠 취소해줘", [{ name: "prepare_order_change", args: { kind: "cancel", orderReference: "STY-1001",
+      productHint: "차콜 플리츠 팬츠", addressId: null, size: null } }, finish], shown);
+    expect(rpcCalls[0]).toMatchObject({ name: "prepare_order_change", args: { p_order: "00000000-0000-4000-8000-000000001002" } });
+  });
+
+  it("화면에 보인 주문의 상품명이 질문과 맞으면 모델이 고른 주문번호를 쓴다", async () => {
+    const shown: OrderResult = { kind: "history", items: [{ reference: "STY-1001", name: "블랙 트윌 재킷", orderedAt: "2026-10-22T03:00:00Z",
+      status: "배송 중", quantity: 1, total: 40000 }] };
+    await chat("블랙 트윌 재킷 취소해줘", [{ name: "prepare_order_change", args: { kind: "cancel", orderReference: "STY-1001",
+      productHint: "트윌 재킷", addressId: null, size: null } }, finish], shown);
+    expect(rpcCalls[0]).toMatchObject({ name: "prepare_order_change", args: { p_order: "00000000-0000-4000-8000-000000001001" } });
+  });
+
+  it("교환 사이즈가 없으면 DB 판정 후 확인 카드 없이 가능한 사이즈를 묻는다", async () => {
+    const result = await chat("STY-1001 교환하고 싶어요", [change("exchange"), finish]);
+    expect(rpcCalls.map(({ name }) => name)).toEqual(["prepare_order_change"]);
+    expect(result.result.action).toBeUndefined();
+    expect(result.result.answer).toContain("어떤 사이즈로 교환");
+    expect(result.result.answer).toContain("L, M, S");
+    expect(result.checkpoint).toMatchObject({ intent: "exchange", waiting: "order" });
   });
 });
 

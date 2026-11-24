@@ -3,13 +3,18 @@ import { z } from "zod";
 export const referenceSchema = z.string().regex(/^STY-[0-9]{4,8}$/u);
 export const actionReasonSchema = z.enum(["change_of_mind", "damaged", "wrong_item", "missing_delivery", "policy_review", "staff_requested"]);
 export type ActionReason = z.infer<typeof actionReasonSchema>;
+export const orderChangeKinds = ["cancel", "address", "exchange"] as const;
+// 주문 변경 대상(배송지 ID, 교환 사이즈). 주문 선택 카드를 거쳐도 이어지도록 상태에 둔다.
+export const changeTargetSchema = z.object({ addressId: z.uuid().nullable(), size: z.enum(["S", "M", "L", "XL", "FREE"]).nullable() }).strict();
+export type ChangeTarget = z.infer<typeof changeTargetSchema>;
 export const agentStateSchema = z.object({
-  intent: z.enum(["return", "support", "checkout"]),
+  intent: z.enum(["return", "support", "checkout", ...orderChangeKinds]),
   reference: referenceSchema.nullable(),
   reason: actionReasonSchema.nullable(),
   waiting: z.enum(["order", "reason", "approval", "closed"]),
   approvalId: z.uuid().optional(),
-  approvalKind: z.enum(["return", "support", "checkout"]).optional(),
+  approvalKind: z.enum(["return", "support", "checkout", ...orderChangeKinds]).optional(),
+  change: changeTargetSchema.optional(),
 }).strict();
 export type AgentState = z.infer<typeof agentStateSchema>;
 export type ActionIntent = {
@@ -18,6 +23,7 @@ export type ActionIntent = {
   productHint: string | null;
   policyQuery: string | null;
   orderReference?: string;
+  change?: ChangeTarget;
 };
 export const reasonLabels: Record<ActionReason, string> = {
   change_of_mind: "단순 변심",
@@ -57,7 +63,7 @@ export function followUpIntent(question: string, prior?: AgentState): ActionInte
   const selected = referenceSchema.safeParse(question.trim().toUpperCase()).success;
   const simpleReason = /^(?:단순\s*변심|마음이\s*바뀌었어요|파손|상품\s*파손|불량|하자|오배송)[.!]?$/u.test(question.trim());
   if (!selected && !(prior.waiting === "reason" && simpleReason && reason)) return;
-  return { intent: prior.intent, reason: simpleReason ? reason : prior.reason, productHint: null, policyQuery: null };
+  return { intent: prior.intent, reason: simpleReason ? reason : prior.reason, productHint: null, policyQuery: null, change: prior.change };
 }
 
 // 키 없이 실행하는 로컬 검증에서만 쓰는 의도 분류기.

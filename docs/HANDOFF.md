@@ -131,3 +131,13 @@ Claude Code 시작 문구는 [후속 작업 프롬프트](CLAUDE_CODE_PROMPT.md)
 - 가짜 임베딩으로 바꾸면 정책을 다시 인덱싱해야 한다: `SHOP_OPS_FAKE_EMBEDDINGS=1 node scripts/seed-showcase.mjs`. OpenAI 임베딩으로 돌아갈 때는 같은 스크립트를 플래그 없이 다시 실행한다(임베딩 모델이 다르면 자동 재인덱싱).
 - CLI 구조화 출력은 최상위 object만 받으므로 어댑터가 스키마를 `value`로 감싼다. 턴당 약 5~15초.
 - 쇼핑 시나리오 S01~S08(`node scripts/cs-scenarios.mjs "^S0"`) Haiku로 전부 통과. 주문 확정은 임시 고객으로만 검증한다(데모 A·B 주문 건수는 문서·e2e에 고정).
+
+## 주문 취소·배송지 변경·교환 (P2-11, 2026-11-25)
+
+- 모델 도구: `prepare_order_change`(kind cancel/address/exchange), `list_addresses`(배송지 ID 조회 전용, 화면 카드 없음). 실행(`change_order`)은 고객이 확인 카드에서 누를 때만 `decide_agent_action` → `confirm_order_change`.
+- 규칙은 DB `check_order_change` 하나에 있고 초안·확정에서 같은 함수로 다시 검사한다. 취소: 출고 준비 중. 배송지: 출고 준비 중 + 결제 후 30분 이내 + 본인 저장 배송지(`mock_addresses`, 주소 원문 입력 없음). 교환: 배송 완료 후 5일 이내, 반품·교환 이력 없음, 새 사이즈 재고, 상품 상태 확인 필수.
+- 배송지·사이즈가 정해지지 않아도 DB 판정을 먼저 한다. 통과한 주문만 배송지 목록이나 사이즈 질문으로 이어 간다(출고된 주문에 배송지 목록을 보이지 않기 위해).
+- 모델이 넘긴 주문번호는 질문에 상품명이 있으면 그 주문의 화면에 보인 상품명과 맞을 때만 쓴다. 이전 턴 주문을 바꾸는 실수를 막는다(M07 시나리오).
+- 취소된 주문은 반품 대상이 아니다(`check_mock_return` → `canceled`). 교환 배송비 규정은 정책에 없어 화면·답변에 넣지 않았다.
+- 검증: pgTAP 97(신규 `order_changes.sql` 24), 단위 48, 키 없는 e2e 8+2, OpenAI 시나리오 전체 60개 스윕 후 실패 4건 수정·재확인, 브라우저에서 배송지 변경·교환 카드 확인.
+- 데모 고객 A 주문은 현재 13건: 2026-11-25 02:28 KST 브라우저 채팅 주문(STY-17560597)이 추가됐다. README·e2e 기준 12건으로 되돌리려면 그 주문만 지운다.

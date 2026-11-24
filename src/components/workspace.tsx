@@ -195,6 +195,9 @@ const toolLabels: Record<AgentTool, string> = {
   update_cart: "장바구니 변경",
   prepare_checkout: "주문 확인",
   place_order: "모의 결제 주문",
+  list_addresses: "배송지 목록",
+  prepare_order_change: "주문 변경 확인",
+  change_order: "주문 변경",
 };
 
 function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = false }: {
@@ -327,9 +330,7 @@ function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = fal
                     {turn.result.orders && <OrderDetails result={turn.result.orders} />}
                     {turn.result.action && <ActionDetails action={turn.result.action} active={turn.id === lastAction} disabled={waiting}
                       choose={(value) => void ask(value)}
-                      decide={(value) => void ask(turn.result?.action?.kind === "checkout"
-                        ? value.decision === "confirm" ? "주문 확인" : "주문 취소"
-                        : value.decision === "confirm" ? "접수 확인" : "접수 취소", undefined, value)} />}
+                      decide={(value) => void ask(decisionLabel(turn.result?.action, value), undefined, value)} />}
                     {turn.result.sources.length > 0 && <div className="reply-sources">
                       {turn.result.sources.map((source) => <details key={source.documentId} className="inline-source">
                         <summary>
@@ -370,6 +371,16 @@ const productCurrency = new Intl.NumberFormat("ko-KR", { style: "currency", curr
 const orderDate = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
 const scanDate = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" });
 
+// 확인 카드 결정은 항상 같은 문장으로 보낸다. 재전송 시 서버가 같은 요청인지 문장으로 비교한다.
+function decisionLabel(action: AgentAction | undefined, value: ActionDecision) {
+  const confirm = value.decision === "confirm";
+  if (action?.kind === "checkout") return confirm ? "주문 확인" : "주문 취소";
+  if (action?.kind === "change") return confirm ? "변경 확인" : "변경 안 함";
+  return confirm ? "접수 확인" : "접수 취소";
+}
+
+const changeTitles = { cancel: "주문 취소", address: "배송지 변경", exchange: "사이즈 교환" } as const;
+
 function ActionDetails({ action, active, disabled, choose, decide }: {
   action: AgentAction; active: boolean; disabled: boolean; choose: (value: string) => void; decide: (value: ActionDecision) => void;
 }) {
@@ -377,7 +388,36 @@ function ActionDetails({ action, active, disabled, choose, decide }: {
   if (action.kind === "closed") return null;
   if (action.kind === "receipt") return <p className="action-receipt"><Check size={15} aria-hidden="true" />{action.action === "checkout"
     ? <span>주문번호 <strong>{action.orders?.join(", ")}</strong> · 모의 결제</span>
-    : <span>접수번호 <strong>{action.id}</strong></span>}</p>;
+    : <span>{action.action in changeTitles ? changeTitles[action.action as keyof typeof changeTitles] + " · " : ""}접수번호 <strong>{action.id}</strong></span>}</p>;
+  if (action.kind === "addresses") return <ul className="order-history" aria-label="배송지 선택">
+    {action.items.map((place) => <li className="order-row" key={place.id}>
+      <button type="button" className="order-choice" disabled={!active || disabled} onClick={() => choose(place.label + " 배송지로 바꿔줘")}>
+        <span><strong>{place.label}{place.isDefault && " · 기본"}</strong><small>{place.summary}</small></span>
+        <ChevronRight size={15} aria-hidden="true" />
+      </button>
+    </li>)}
+  </ul>;
+  if (action.kind === "change") {
+    const exchange = action.change === "exchange";
+    return <section className="shipment-card action-card" aria-label={changeTitles[action.change]}>
+      <div className="shipment-heading"><strong>{changeTitles[action.change]}</strong><span>{action.order.status}</span></div>
+      <p className="shipment-meta">{action.order.reference} · {action.order.name} · {action.order.quantity}개</p>
+      {action.change === "address" && <p className="shipment-meta">새 배송지: {action.detail.label} · {action.detail.summary}</p>}
+      {exchange && <p className="shipment-meta">{action.detail.fromSize ?? "기존"} → {action.detail.size}</p>}
+      {action.change === "cancel" && <p className="shipment-meta">출고 전 주문이라 바로 취소돼요.</p>}
+      {active && <>
+        {exchange && <label className="action-check"><input type="checkbox" checked={condition} disabled={disabled}
+          onChange={(event) => setCondition(event.target.checked)} /> 미사용 상품이며 태그가 부착돼 있어요.</label>}
+        <div className="action-buttons">
+          <Button className="primary" disabled={disabled || exchange && !condition}
+            onClick={() => decide({ approvalId: action.id, decision: "confirm", itemConditionConfirmed: condition })}>
+            {action.change === "cancel" ? "주문 취소하기" : action.change === "address" ? "배송지 바꾸기" : "교환 신청"}</Button>
+          <Button className="secondary" disabled={disabled}
+            onClick={() => decide({ approvalId: action.id, decision: "cancel", itemConditionConfirmed: false })}>닫기</Button>
+        </div>
+      </>}
+    </section>;
+  }
   if (action.kind === "checkout") return <section className="shipment-card action-card" aria-label="주문 확인">
     <div className="shipment-heading"><strong>주문 확인</strong><span>모의 결제</span></div>
     <CartLines cart={action.cart} />
@@ -426,6 +466,7 @@ const returnStatus = {
   too_late: "반품 기한 지남",
   already_submitted: "반품 접수됨",
   review: "상담원 확인 필요",
+  canceled: "주문 취소됨",
 };
 
 function OrderDetails({ result }: { result: OrderResult }) {

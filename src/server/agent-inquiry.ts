@@ -8,7 +8,7 @@ import { createToolSelector, productFilters, type PresentedOrder, type RecentTur
 import { runAgentWorkflow } from "./agent-workflow";
 import { catalogAnswer, type CatalogEntry, type CatalogFilters } from "./catalog";
 import { loadCatalog, prepareCheckout, productDetail, updateCart, viewCart } from "./store";
-import { listOrders, listReturnEligibility, orderLoginRequired, trackShipment } from "./mock-orders";
+import { listAddresses, listOrders, listReturnEligibility, orderLoginRequired, trackShipment } from "./mock-orders";
 
 const orderContextSchema = z.object({
   reference: referenceSchema, name: z.string().max(200), status: z.string(), orderedAt: z.string(),
@@ -39,6 +39,8 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   const select = createToolSelector(question, filters, prior, previousOrders,
     currentCart?.lines.map(({ productId, name, size, quantity }) => ({ productId, name, size, quantity })), recentTurns);
   const known = new Set(previousOrders.map(({ reference }) => reference));
+  // 화면에 보인 주문의 상품명. 모델이 고른 주문번호가 질문의 상품명과 맞는지 확인할 때 쓴다.
+  const knownNames = new Map(previousOrders.map(({ reference, name }) => [reference, name]));
   if (prior?.reference) known.add(prior.reference);
   const statedRef = orderReference(question);
   const policies: Answer[] = [];
@@ -49,6 +51,7 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   let nextFilters: CatalogFilters | undefined;
   let shopResult: Answer | undefined;
   let checkoutApproval: string | undefined;
+  const listedAddresses = new Set<string>();
   let catalog: CatalogEntry[] | undefined;
   const products = async () => catalog ??= await loadCatalog(tenantId);
   const scope = { tenantId, sessionId, customerId };
@@ -95,10 +98,37 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
       return { answer: shopResult.answer, awaiting: shopResult.action?.kind, cart: shopResult.cart };
     }
     const referenceArg = "orderReference" in tool.args ? tool.args.orderReference : null;
-    const reference = statedRef ?? (referenceArg && known.has(referenceArg) ? referenceArg : null);
     const hintArg = "productHint" in tool.args ? tool.args.productHint : null;
     const productHint = hintArg && question.toLowerCase().includes(hintArg.toLowerCase())
       ? hintArg.replaceAll("자켓", "재킷") : null;
+    // 질문에 상품명이 있으면, 모델이 고른 주문번호는 그 주문의 상품명이 일치할 때만 쓴다. 이전 턴의 다른 주문을 바꾸는 실수를 막기 위해서다.
+    const matchesHint = (ref: string) => !productHint || (knownNames.get(ref)?.replaceAll(" ", "") ?? "").includes(productHint.replaceAll(" ", ""));
+    const reference = statedRef ?? (referenceArg && known.has(referenceArg) && matchesHint(referenceArg) ? referenceArg : null);
+    if (tool.name === "list_addresses") {
+      // 배송지 ID 조회만 한다. 선택 카드는 주문 판정을 통과한 뒤 워크플로가 보여준다.
+      if (!customerId) return { answer: "로그인이 필요해요." };
+      report?.("list_addresses");
+      const listed = await listAddresses(tenantId, customerId);
+      const items = listed.action?.kind === "addresses" ? listed.action.items : [];
+      for (const item of items) listedAddresses.add(item.id);
+      return { addresses: items, next: "prepare_order_change로 주문을 확인하세요." };
+    }
+    if (tool.name === "prepare_order_change") {
+      if (!workflowResult) {
+        // 배송지 ID는 이번 턴에 조회한 목록에 있을 때만 쓴다. 없으면 워크플로가 목록을 보여주고 고객이 고르게 한다.
+        const addressId = tool.args.addressId && listedAddresses.has(tool.args.addressId) ? tool.args.addressId : null;
+        workflowResult = await runAgentWorkflow({
+          scope: { tenantId, sessionId, customerId }, question, prior, lastOrder, report,
+          decision: undefined, approvalKind: undefined,
+          intent: { intent: tool.args.kind, reason: null, orderReference: reference ?? undefined, productHint, policyQuery: null,
+            change: { addressId, size: tool.args.size } },
+        });
+      }
+      const { answer } = workflowResult;
+      return { answer: answer.answer, awaiting: answer.action?.kind,
+        orders: answer.action?.kind === "select_order" ? answer.action.items : undefined,
+        addresses: answer.action?.kind === "addresses" ? answer.action.items : undefined };
+    }
     if (tool.name === "prepare_return" || tool.name === "offer_support") {
       if (!workflowResult) {
         workflowResult = await runAgentWorkflow({
@@ -143,7 +173,10 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     }
     const observed = presentedOrders(orderResult.orders);
     if (tool.name === "list_orders" && observed.length) currentOrders = observed;
-    for (const order of observed) known.add(order.reference);
+    for (const order of observed) {
+      known.add(order.reference);
+      knownNames.set(order.reference, order.name);
+    }
     return { answer: orderResult.answer, orders: orderResult.orders };
   });
 
@@ -159,8 +192,8 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   const policyLeads = policy !== undefined && answers.every((answer) => answer.abstained);
   const primary = policyLeads ? undefined : answers.at(-1);
   const pendingCard = workflowResult?.answer.action ?? shopResult?.action;
-  const clarification = status === "clarify" && !pendingCard
-    ? catalogResult || shopResult?.product ? "원하는 사이즈를 골라 주세요. 수량을 말하지 않으면 1개로 담아요."
+  const clarification = status === "clarify" && !pendingCard && !workflowResult
+    ? catalogResult || shopResult?.product ? "원하는 상품의 사이즈 버튼을 눌러 골라 주세요. 수량을 말하지 않으면 1개로 담아요."
       : answers.length ? "확인할 주문번호나 상품명을 알려주세요." : helpPrompt : undefined;
   const incomplete = status === "incomplete" && !pendingCard
     ? "추가 확인이 필요한 내용은 다시 물어봐 주세요." : undefined;

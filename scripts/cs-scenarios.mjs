@@ -77,6 +77,13 @@ const scenarios = [
   ["S06 상품상세", null, ["네이비 초어 재킷 소재랑 세탁 방법 알려줘"]],
   ["S07 비로그인담기", null, ["블랙 트윌 재킷 M 담아줘"]],
   ["S08 주문취소카드", "temp", ["블랙 울 머플러 하나 주문할게", "{cancel}", "장바구니 보여줘"]],
+  ["M01 출고전취소", "temp", ["블랙 울 머플러 주문 취소해줘", "{confirm}", "주문 내역 보여줘"]],
+  ["M02 배송지변경", "temp", ["머플러 주문 배송지 바꾸고 싶어요", "회사 배송지로 바꿔줘", "{confirm}"]],
+  ["M03 사이즈교환", "temp", ["네이비 초어 재킷 L로 교환하고 싶어요", "{confirm}"]],
+  ["M04 교환사이즈미정", "temp", ["초어 재킷 사이즈 교환할래요", "XL로요"]],
+  ["M05 배송중취소", A, ["STY-1001 주문 취소해줘"]],
+  ["M06 변경닫기", "temp", ["머플러 주문 취소할래", "{cancel}", "주문 내역 보여줘"]],
+  ["M07 이전주문혼동", "temp", ["머플러 주문 배송지 바꾸고 싶어요", "회사 배송지로 바꿔줘", "{confirm}", "초어 재킷 L로 교환하고 싶어요"]],
   ["X01 반품접수-확인", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "방금 반품한 거 다시 반품해줘"]],
   ["X02 반품접수-취소", "temp", ["검증 셔츠 반품할래요. 단순 변심", "{cancel}"]],
 ];
@@ -91,6 +98,23 @@ async function tempCustomer() {
     status: "delivered", quantity: 1, total_amount: 39000 }).select("id").single();
   await db.from("mock_shipment_events").insert({ tenant_id: tenant.data.id, order_id: order.data.id,
     occurred_at: new Date(Date.now() - 86_400_000).toISOString(), location: "검증 배송점", description: "배달 완료" });
+  // 주문 변경 시나리오용: 출고 전 주문(취소·배송지), 사이즈가 기록된 배송 완료 주문(교환), 합성 배송지 2곳.
+  const now = Date.now();
+  const extra = await db.from("mock_orders").insert([
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, order_reference: "STY-" + (Number(reference.slice(4)) + 1),
+      product_name: "블랙 울 머플러", ordered_at: new Date(now - 120_000).toISOString(), status: "preparing", quantity: 1,
+      total_amount: 35000, product_id: "black-wool-muffler", option_size: "FREE" },
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, order_reference: "STY-" + (Number(reference.slice(4)) + 2),
+      product_name: "네이비 초어 재킷", ordered_at: new Date(now - 4 * 86_400_000).toISOString(), status: "delivered", quantity: 1,
+      total_amount: 89000, product_id: "navy-chore-jacket", option_size: "M" },
+  ]).select("id,product_name");
+  const chore = extra.data.find((row) => row.product_name === "네이비 초어 재킷");
+  await db.from("mock_shipment_events").insert({ tenant_id: tenant.data.id, order_id: chore.id,
+    occurred_at: new Date(now - 2 * 86_400_000).toISOString(), location: "검증 배송점", description: "배달 완료" });
+  await db.from("mock_addresses").insert([
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, label: "집", summary: "서울 마포구 (합성 주소)", is_default: true },
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, label: "회사", summary: "서울 중구 (합성 주소)", is_default: false },
+  ]);
   return { email, id: user.data.user.id, reference, orderId: order.data.id };
 }
 
@@ -137,7 +161,11 @@ async function run([id, who, turns]) {
       const checkouts = await db.from("mock_checkouts").select("id,total").eq("customer_user_id", temp.id);
       const placed = await db.from("mock_orders").select("order_reference,product_name,option_size,quantity,status").eq("customer_user_id", temp.id).not("checkout_id", "is", null);
       const cart = await db.from("mock_cart_items").select("product_id,size,quantity").eq("customer_user_id", temp.id);
+      const statuses = await db.from("mock_orders").select("product_name,status,option_size,address_id").eq("customer_user_id", temp.id).is("checkout_id", null);
+      const changes = await db.from("mock_order_changes").select("kind,detail").in("order_id",
+        (await db.from("mock_orders").select("id").eq("customer_user_id", temp.id)).data.map((row) => row.id));
       record.db = { returns: saved.data?.length, tickets: tickets.data?.length, reference: temp.reference,
+        orders: statuses.data?.map((row) => `${row.product_name}:${row.status}${row.address_id ? ":addr" : ""}`), changes: changes.data,
         checkouts: checkouts.data, placed: placed.data, cart: cart.data };
     }
   } catch (e) {

@@ -16,6 +16,9 @@ export const progressLabels = {
   update_cart: "장바구니 변경 중",
   prepare_checkout: "주문 내용 확인 중",
   place_order: "모의 결제로 주문 중",
+  list_addresses: "저장된 배송지 확인 중",
+  prepare_order_change: "주문 상태와 변경 조건 확인 중",
+  change_order: "주문 변경 처리 중",
   compose: "확인한 정책으로 답변 정리 중",
 } as const;
 
