@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(24);
+select extensions.plan(26);
 
 -- 모든 데이터는 트랜잭션 안의 합성 값이며 마지막에 롤백한다.
 insert into public.tenants (name, slug, public_widget_key)
@@ -34,10 +34,12 @@ insert into public.mock_orders(id,tenant_id,customer_user_id,order_reference,pro
   select '42000000-0000-4000-8000-000000000002'::uuid,tenant,customer,'STY-77000002','변경 검증 셔츠',now()-interval '2 hours','preparing',1,'oc-shirt','M' from oc union all
   select '42000000-0000-4000-8000-000000000003'::uuid,tenant,customer,'STY-77000003','변경 검증 셔츠',now()-interval '3 days','in_transit',1,'oc-shirt','M' from oc union all
   select '42000000-0000-4000-8000-000000000004'::uuid,tenant,customer,'STY-77000004','변경 검증 셔츠',now()-interval '3 days','delivered',1,'oc-shirt','M' from oc union all
-  select '42000000-0000-4000-8000-000000000005'::uuid,tenant,customer,'STY-77000005','변경 검증 셔츠',now()-interval '12 days','delivered',1,'oc-shirt','M' from oc;
+  select '42000000-0000-4000-8000-000000000005'::uuid,tenant,customer,'STY-77000005','변경 검증 셔츠',now()-interval '12 days','delivered',1,'oc-shirt','M' from oc union all
+  select '42000000-0000-4000-8000-000000000006'::uuid,tenant,customer,'STY-77000006','변경 검증 셔츠',now()-interval '3 days','delivered',1,'oc-shirt',null from oc;
 insert into public.mock_shipment_events(tenant_id,order_id,occurred_at,location,description)
   select tenant,'42000000-0000-4000-8000-000000000004'::uuid,now()-interval '2 days','서울 배송점','배달 완료' from oc union all
-  select tenant,'42000000-0000-4000-8000-000000000005'::uuid,now()-interval '10 days','서울 배송점','배달 완료' from oc;
+  select tenant,'42000000-0000-4000-8000-000000000005'::uuid,now()-interval '10 days','서울 배송점','배달 완료' from oc union all
+  select tenant,'42000000-0000-4000-8000-000000000006'::uuid,now()-interval '2 days','서울 배송점','배달 완료' from oc;
 
 -- 권한: 고객 역할은 변경 함수와 배송지 테이블을 직접 쓸 수 없다.
 select extensions.ok(not has_function_privilege('authenticated','public.prepare_order_change(uuid,uuid,uuid,uuid,text,uuid,text)','EXECUTE'), '고객이 주문 변경 초안 RPC를 직접 실행할 수 없음');
@@ -70,6 +72,8 @@ select extensions.is((select address_id from public.mock_orders where id = '4200
 
 -- 교환: 배송 완료 후 5일 이내, 상품 상태 확인 필수, 새 사이즈 재고 차감, 같은 주문은 한 번만.
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000005'::uuid,'exchange',null,'L')->>'status','too_late','수령 후 5일이 지나면 교환 불가') from oc;
+select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000006'::uuid,'exchange',null,null)->>'status','size_missing','사이즈 기록이 없는 주문도 새 사이즈 미지정이면 사이즈를 묻는다') from oc;
+select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,null)->'sizes','["L"]'::jsonb,'사이즈 목록은 재고가 있는 다른 사이즈만') from oc;
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,'XL')->>'status','out_of_stock','품절 사이즈로 교환 불가') from oc;
 create temporary table exchange_draft as
   select (public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,'L')->>'id')::uuid as approval from oc;

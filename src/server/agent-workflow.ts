@@ -91,6 +91,17 @@ const changeMessages = {
   condition_required: "미사용 상품이며 태그가 부착돼 있는지 확인해 주세요.",
 } as const;
 
+// 한글 받침에 맞춰 조사를 붙인다. 영문·숫자로 끝나면 받침 없는 쪽을 쓴다.
+function josa(word: string, withFinal: string, withoutFinal: string) {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  if (code < 0 || code > 11171) return word + withoutFinal;
+  const final = code % 28;
+  if (withFinal === "으로" && final === 8) return word + withoutFinal;
+  return word + (final ? withFinal : withoutFinal);
+}
+const sizeOrder = ["S", "M", "L", "XL", "FREE"];
+const bySize = (sizes: string[]) => [...sizes].sort((a, b) => sizeOrder.indexOf(a) - sizeOrder.indexOf(b));
+
 async function prepareChange({ scope, checkpoint, candidate, report }: GraphState): Promise<Partial<GraphState>> {
   const kind = checkpoint?.intent;
   if (!checkpoint || !isChange(kind) || !candidate || !scope.customerId) return {};
@@ -109,15 +120,16 @@ async function prepareChange({ scope, checkpoint, candidate, report }: GraphStat
   }
   if (draft.status === "size_missing" && !target.size) {
     return { checkpoint: { ...checkpoint, waiting: "order" }, result: message(
-      candidate.summary.name + "을 어떤 사이즈로 교환할까요? 가능한 사이즈: " + draft.sizes.join(", "), { toolUsed: "prepare_order_change" }) };
+      josa(candidate.summary.name, "을", "를") + " 어떤 사이즈로 교환할까요? 가능한 사이즈: " + bySize(draft.sizes).join(", "),
+      { toolUsed: "prepare_order_change" }) };
   }
   if (draft.status !== "pending") {
-    const text = draft.status === "size_missing" ? changeMessages.size_missing + " 가능한 사이즈: " + draft.sizes.join(", ")
+    const text = draft.status === "size_missing" ? changeMessages.size_missing + " 가능한 사이즈: " + bySize(draft.sizes).join(", ")
       : changeMessages[draft.status];
     return { checkpoint: { ...checkpoint, waiting: "closed" }, result: message(text, { toolUsed: "prepare_order_change" }) };
   }
   const lead = kind === "cancel" ? "주문을 취소할 수 있어요."
-    : kind === "address" ? "배송지를 " + draft.detail.label + "(으)로 바꿀 수 있어요."
+    : kind === "address" ? "배송지를 " + josa(draft.detail.label ?? "선택한 배송지", "으로", "로") + " 바꿀 수 있어요."
       : draft.detail.size + " 사이즈로 교환할 수 있어요.";
   return {
     checkpoint: { ...checkpoint, waiting: "approval", approvalId: draft.id, approvalKind: kind },
@@ -250,7 +262,7 @@ async function decide({ scope, decision, approvalKind, report, prior }: GraphSta
     if (isChange(response.kind)) {
       const detail = changeDetail.safeParse(response.detail ?? {}).data;
       const done = response.kind === "cancel" ? "주문을 취소했어요."
-        : response.kind === "address" ? "배송지를 " + (detail?.label ?? "선택한 배송지") + "(으)로 바꿨어요."
+        : response.kind === "address" ? "배송지를 " + josa(detail?.label ?? "선택한 배송지", "으로", "로") + " 바꿨어요."
           : (detail?.size ?? "선택한") + " 사이즈 교환을 접수했어요. 회수 후 새 상품을 보내드려요.";
       return { checkpoint, result: message(done, { toolUsed: "change_order",
         action: { kind: "receipt", action: response.kind, id: response.receipt, approvalId: decision.approvalId } }) };

@@ -430,7 +430,8 @@ describe("주문 취소·배송지 변경·교환", () => {
     expect(rpcCalls.map(({ name }) => name)).toEqual(["prepare_order_change"]);
     expect(result.result.action).toBeUndefined();
     expect(result.result.answer).toContain("어떤 사이즈로 교환");
-    expect(result.result.answer).toContain("L, M, S");
+    // 고객 A STY-1001 상품명은 "블랙 트윌 재킷": 받침이 있어 "을", 사이즈는 S→M→L 순서.
+    expect(result.result.answer).toContain("블랙 트윌 재킷을 어떤 사이즈로 교환할까요? 가능한 사이즈: S, M, L");
     expect(result.checkpoint).toMatchObject({ intent: "exchange", waiting: "order" });
   });
 });
