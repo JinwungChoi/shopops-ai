@@ -18,7 +18,7 @@ Style Shop 한 곳으로 시연한다. 기본 합성 주문은 고객 A 12건과
 | 경로 | 역할 |
 | --- | --- |
 | [live-chat.ts](../src/server/live-chat.ts) | 세션 토큰과 고객 인증 확인, 대화 및 상태 저장, 요청 재전송 처리, 정책 출처의 활성 버전 확인 |
-| [agent-routing.ts](../src/server/agent-routing.ts), [agent-loop.ts](../src/server/agent-loop.ts), [agent-inquiry.ts](../src/server/agent-inquiry.ts) | Zod 도구 입력 검증, 도구 결과를 `ToolMessage`로 돌려주는 반복 실행, 주문·정책 결과 합성 |
+| [agent-routing.ts](../src/server/agent-routing.ts), [agent-loop.ts](../src/server/agent-loop.ts), [agent-inquiry.ts](../src/server/agent-inquiry.ts) | Zod 도구 입력 검증, LangGraph `decide`→`act` 반복 실행(최대 5결정, 같은 호출 재사용), 주문·정책·장바구니 결과 합성 |
 | [mock-orders.ts](../src/server/mock-orders.ts), [agent-workflow.ts](../src/server/agent-workflow.ts) | 고객 범위의 주문 조회와 반품 판정, LangGraph로 접수 초안 생성과 고객 확인 처리 |
 | [정책 검색](../src/server/policy-search.ts), [답변 생성](../src/server/generation.ts) | 업체 범위의 근거 검색, 정책 응답 생성과 출처 검증 |
 | [workspace.tsx](../src/components/workspace.tsx), [live-admin.tsx](../src/components/live-admin.tsx) | 공개 채팅, 상품·주문 카드, 접수 확인, 관리자 문의 목록과 대화 조회 |
@@ -27,7 +27,7 @@ Style Shop 한 곳으로 시연한다. 기본 합성 주문은 고객 A 12건과
 - `list_returnable_orders`는 신청 가능한 주문만 반환한다. 건수와 카드 모두 이 결과를 사용한다. `check_order_return_status`는 특정 주문의 판정·사유 또는 명시적으로 요청한 전체 판정을 조회한다.
 - 주문, 업체 및 고객 권한은 서버가 바인딩한다. 모델에는 필요한 합성 주문 정보만 전달하고 인증 토큰·승인 ID·시크릿은 전달하지 않는다.
 - 조회와 접수 의도는 모델이 파악한다. 실제 쓰기는 고객 확인 요청으로만 들어오며 DB가 소유권, 현재 상태, 승인 만료를 확인한다. 같은 승인의 재시도는 기존 접수번호를 반환한다.
-- LangGraph는 접수 단계에 사용한다. 재개 상태는 Supabase의 채팅 응답에 저장하며, Style Shop의 유효한 상담 세션은 같은 브라우저 탭에서 새로고침 후 이어진다.
+- LangGraph는 두 곳에 쓴다: 한 턴의 도구 선택·실행 루프(`agent-loop.ts`)와 접수·주문 확인 단계(`agent-workflow.ts`). 재개 상태는 Supabase의 채팅 응답에 저장하며, Style Shop의 유효한 상담 세션은 같은 브라우저 탭에서 새로고침 후 이어진다.
 
 ## 다시 실행하기
 
@@ -105,7 +105,7 @@ pwsh -NoProfile -File scripts/test-local-supabase.ps1 -LiveModel
 - 조기 종료: 모델이 도구 없이 끝내려 하면 한 번만 되묻는다. 되묻기에 문장으로 답하면 처음 고른 종료를 유지한다.
 - 상품: 판매하지 않는 품목과 특정 사이즈 품절을 구분해 안내한다(`catalog.ts`).
 
-검증 결과는 단위 35건, DB 48건, 실제 모델 브라우저 3건, 메모리 데모 8건, lint·typecheck·build 통과다. 실행기는 응답을 기록할 뿐이고 정답을 자동 판정하지 않는다. 남은 한계도 있다. 무통장 입금(결제 수단 문서에 해당 표현이 없음)과 쿠폰·적립금은 근거 부족으로 보류된다. 비로그인 정책 답변 뒤에 로그인 안내가 붙는 경우도 있다.
+검증 결과는 단위 35건, DB 48건, 실제 모델 브라우저 3건, 메모리 데모 8건, lint·typecheck·build 통과다. 실행기는 응답을 기록할 뿐이고 정답을 자동 판정하지 않는다. 이후 합성 정책 2개(`무통장 입금과 현금영수증`, `쿠폰과 적립금`)를 추가해 Style Shop 정책은 22개가 됐다. 직접 사용해 보다가 구매 요청("M 사이즈 주문 가능?", "구매하고 싶다니까")에 같은 상품 카드만 반복되는 문제가 나왔다. 확인해 보니 모델이 상품 검색만 반복했고, 주문 방법 근거와 재고 여부 답변이 없었다. 그래서 `주문 방법` 정책(23개째)을 추가하고, 사이즈를 지정한 검색은 재고 여부를 답하게 했다. 구매 요청에는 재고와 주문 방법 정책을 함께 쓰도록 도구 설명도 바꿨다. 무통장 입금, 현금영수증, 쿠폰·적립금 질문은 이제 출처와 함께 답하고, 다른 쇼핑몰 정책 질문은 계속 보류된다. 남은 한계로, 비로그인 정책 답변 뒤에 로그인 안내가 붙는 경우가 있다.
 
 ## 남은 작업
 
@@ -116,3 +116,18 @@ pwsh -NoProfile -File scripts/test-local-supabase.ps1 -LiveModel
 - 인수인계 시점에 로컬 작업 트리에는 첫 Git 커밋이 없다. 같은 폴더에서 Claude Code를 열면 파일을 읽을 수 있다. 다른 머신이나 원격 세션으로 옮길 때는 소스와 문서를 별도로 전달하며 `.env.local`과 로컬 DB는 따로 구성한다.
 
 Claude Code 시작 문구는 [후속 작업 프롬프트](CLAUDE_CODE_PROMPT.md)에 있다.
+
+## 장바구니·모의 주문 (P2-09·P2-10, 2026-11-25)
+
+- 상품·재고는 `mock_products`/`mock_product_options`(시드: `node scripts/seed-catalog.mjs`, 원본 `demo/catalog.json`).
+- 모델 도구: `get_product`, `add_to_cart`, `update_cart_item`, `view_cart`, `prepare_checkout`. 주문 확정(`place_order`)은 모델 도구가 아니고 고객이 주문 확인 카드에서 누를 때만 `decide_agent_action`이 실행한다.
+- 장바구니 쓰기는 확인 카드 없이 실행되는 유일한 쓰기다. 불변식: 로그인 고객 본인 장바구니만, 수량 1~10·재고 이내, 되돌릴 수 있음, `요청 ID:도구:상품:사이즈:수량` 키로 재전송 중복 방지(`mock_cart_requests`).
+- 가격·재고는 확정 시점에 DB가 다시 계산한다. 초안 뒤 장바구니나 가격이 바뀌면 `cart_changed`로 거부, 재시도는 같은 주문을 반환하고 재고는 한 번만 차감(pgTAP `supabase/tests/shopping.sql`).
+- 매 턴 서버가 현재 장바구니(`mock_cart_view`)를 모델 문맥 `currentCart`로 넣는다. "이대로 주문", "하나만", "빼줘"를 장바구니 기준으로 판단하게 하기 위해서다.
+
+## 로컬 무료 모델 모드
+
+- `SHOP_OPS_LLM=claude-cli` + `SHOP_OPS_FAKE_EMBEDDINGS=1` + `SHOP_OPS_LIVE_MODEL=1`이면 OpenAI 대신 설치된 `claude -p`(기본 `haiku`, `SHOP_OPS_CLAUDE_MODEL`로 변경)로 도구 선택·답변 생성을 한다. 운영(`NODE_ENV=production`)에서는 거부한다.
+- 가짜 임베딩으로 바꾸면 정책을 다시 인덱싱해야 한다: `SHOP_OPS_FAKE_EMBEDDINGS=1 node scripts/seed-showcase.mjs`. OpenAI 임베딩으로 돌아갈 때는 같은 스크립트를 플래그 없이 다시 실행한다(임베딩 모델이 다르면 자동 재인덱싱).
+- CLI 구조화 출력은 최상위 object만 받으므로 어댑터가 스키마를 `value`로 감싼다. 턴당 약 5~15초.
+- 쇼핑 시나리오 S01~S08(`node scripts/cs-scenarios.mjs "^S0"`) Haiku로 전부 통과. 주문 확정은 임시 고객으로만 검증한다(데모 A·B 주문 건수는 문서·e2e에 고정).

@@ -4,12 +4,12 @@ export const referenceSchema = z.string().regex(/^STY-[0-9]{4,8}$/u);
 export const actionReasonSchema = z.enum(["change_of_mind", "damaged", "wrong_item", "missing_delivery", "policy_review", "staff_requested"]);
 export type ActionReason = z.infer<typeof actionReasonSchema>;
 export const agentStateSchema = z.object({
-  intent: z.enum(["return", "support"]),
+  intent: z.enum(["return", "support", "checkout"]),
   reference: referenceSchema.nullable(),
   reason: actionReasonSchema.nullable(),
   waiting: z.enum(["order", "reason", "approval", "closed"]),
   approvalId: z.uuid().optional(),
-  approvalKind: z.enum(["return", "support"]).optional(),
+  approvalKind: z.enum(["return", "support", "checkout"]).optional(),
 }).strict();
 export type AgentState = z.infer<typeof agentStateSchema>;
 export type ActionIntent = {

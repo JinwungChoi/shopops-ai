@@ -3,7 +3,7 @@
 Style Shop은 합성 정책을 사용하는 의류몰 고객센터 데모입니다.
 
 - [Style Shop 실제 모델 채팅](http://127.0.0.1:3031/chat/202dbac4609c4aaa9a7cd4ea0aa604a5)
-- [정책 원문 20개](showcase-policies.json)
+- [정책 원문 23개](showcase-policies.json)
 
 질문을 보내고 답변 아래 정책 출처를 펼쳐 보세요. 반품 기한은 수령 후 7일, 기본 무료배송 기준은 5만 원, 단순 변심 왕복 반품비는 6,000원입니다.
 

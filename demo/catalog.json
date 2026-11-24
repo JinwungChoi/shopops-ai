@@ -1,0 +1,898 @@
+{
+  "style": [
+    {
+      "id": "black-twill-jacket",
+      "name": "블랙 트윌 재킷",
+      "category": "jacket",
+      "color": "black",
+      "price": 69000,
+      "releasedAt": "2026-11-23",
+      "isNew": true,
+      "material": "면 98%, 폴리우레탄 2%",
+      "fit": "레귤러 핏",
+      "care": "세탁 라벨을 우선하고 미지근한 물에 단독 손세탁, 그늘 건조",
+      "image": "/demo-products/black-twill-jacket.png",
+      "options": [
+        {
+          "size": "S",
+          "stock": 4
+        },
+        {
+          "size": "M",
+          "stock": 7
+        },
+        {
+          "size": "L",
+          "stock": 0
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "stone-collar-jacket",
+      "name": "스톤 칼라 재킷",
+      "category": "jacket",
+      "color": "stone",
+      "price": 79000,
+      "releasedAt": "2026-11-22",
+      "isNew": true,
+      "material": "면 100%",
+      "fit": "릴랙스드 핏",
+      "care": "세탁 라벨을 우선하고 미지근한 물에 단독 손세탁, 그늘 건조",
+      "image": "/demo-products/stone-collar-jacket.png",
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 0
+        },
+        {
+          "size": "L",
+          "stock": 5
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "ivory-oxford-shirt",
+      "name": "아이보리 옥스퍼드 셔츠",
+      "category": "shirt",
+      "color": "ivory",
+      "price": 49000,
+      "releasedAt": "2026-11-21",
+      "isNew": true,
+      "material": "면 100% 옥스퍼드",
+      "fit": "레귤러 핏",
+      "care": "40도 이하 세탁망 세탁",
+      "image": "/demo-products/ivory-oxford-shirt.png",
+      "options": [
+        {
+          "size": "S",
+          "stock": 5
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "charcoal-pleated-trousers",
+      "name": "차콜 플리츠 팬츠",
+      "category": "trousers",
+      "color": "charcoal",
+      "price": 59000,
+      "releasedAt": "2026-11-05",
+      "isNew": false,
+      "material": "폴리에스터 68%, 레이온 30%, 스판 2%",
+      "fit": "와이드 핏",
+      "care": "드라이클리닝 권장",
+      "image": "/demo-products/charcoal-pleated-trousers.png",
+      "options": [
+        {
+          "size": "S",
+          "stock": 0
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 4
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "navy-chore-jacket",
+      "name": "네이비 초어 재킷",
+      "category": "jacket",
+      "color": "navy",
+      "price": 89000,
+      "releasedAt": "2026-11-18",
+      "isNew": true,
+      "material": "면 100% 캔버스",
+      "fit": "박시 핏",
+      "care": "세탁 라벨을 우선하고 미지근한 물에 단독 손세탁, 그늘 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 5
+        },
+        {
+          "size": "L",
+          "stock": 4
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "grey-wool-blazer",
+      "name": "그레이 울 블레이저",
+      "category": "jacket",
+      "color": "grey",
+      "price": 129000,
+      "releasedAt": "2026-10-28",
+      "isNew": false,
+      "material": "울 70%, 폴리에스터 30%",
+      "fit": "슬림 핏",
+      "care": "드라이클리닝 권장",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 1
+        },
+        {
+          "size": "M",
+          "stock": 2
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 0
+        }
+      ]
+    },
+    {
+      "id": "khaki-field-jacket",
+      "name": "카키 필드 재킷",
+      "category": "jacket",
+      "color": "khaki",
+      "price": 99000,
+      "releasedAt": "2026-10-15",
+      "isNew": false,
+      "material": "면 60%, 나일론 40%",
+      "fit": "레귤러 핏",
+      "care": "세탁 라벨을 우선하고 미지근한 물에 단독 손세탁, 그늘 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 0
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 3
+        }
+      ]
+    },
+    {
+      "id": "black-wool-coat",
+      "name": "블랙 울 코트",
+      "category": "coat",
+      "color": "black",
+      "price": 189000,
+      "releasedAt": "2026-11-20",
+      "isNew": true,
+      "material": "울 80%, 나일론 20%",
+      "fit": "오버사이즈 핏",
+      "care": "드라이클리닝 권장",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "camel-single-coat",
+      "name": "카멜 싱글 코트",
+      "category": "coat",
+      "color": "brown",
+      "price": 169000,
+      "releasedAt": "2026-11-10",
+      "isNew": true,
+      "material": "울 60%, 폴리에스터 40%",
+      "fit": "레귤러 핏",
+      "care": "드라이클리닝 권장",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 1
+        },
+        {
+          "size": "M",
+          "stock": 0
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "charcoal-padded-jacket",
+      "name": "차콜 패딩 재킷",
+      "category": "coat",
+      "color": "charcoal",
+      "price": 139000,
+      "releasedAt": "2026-11-12",
+      "isNew": true,
+      "material": "겉감 나일론 100%, 충전재 덕다운 80%",
+      "fit": "레귤러 핏",
+      "care": "전용 세제로 단독 세탁 후 두드려 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 6
+        },
+        {
+          "size": "L",
+          "stock": 5
+        },
+        {
+          "size": "XL",
+          "stock": 3
+        }
+      ]
+    },
+    {
+      "id": "cream-cotton-shirt",
+      "name": "크림 코튼 셔츠",
+      "category": "shirt",
+      "color": "ivory",
+      "price": 39000,
+      "releasedAt": "2026-10-30",
+      "isNew": false,
+      "material": "면 100%",
+      "fit": "레귤러 핏",
+      "care": "40도 이하 세탁망 세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 4
+        },
+        {
+          "size": "M",
+          "stock": 5
+        },
+        {
+          "size": "L",
+          "stock": 4
+        },
+        {
+          "size": "XL",
+          "stock": 0
+        }
+      ]
+    },
+    {
+      "id": "navy-linen-shirt",
+      "name": "네이비 린넨 셔츠",
+      "category": "shirt",
+      "color": "navy",
+      "price": 45000,
+      "releasedAt": "2026-09-20",
+      "isNew": false,
+      "material": "린넨 100%",
+      "fit": "릴랙스드 핏",
+      "care": "찬물 손세탁, 다림질은 중온",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 0
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "white-stripe-tshirt",
+      "name": "화이트 스트라이프 티셔츠",
+      "category": "shirt",
+      "color": "white",
+      "price": 28000,
+      "releasedAt": "2026-09-12",
+      "isNew": false,
+      "material": "면 100%",
+      "fit": "레귤러 핏",
+      "care": "뒤집어서 세탁기 사용 가능",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 6
+        },
+        {
+          "size": "M",
+          "stock": 8
+        },
+        {
+          "size": "L",
+          "stock": 7
+        },
+        {
+          "size": "XL",
+          "stock": 4
+        }
+      ]
+    },
+    {
+      "id": "blue-denim-shirt",
+      "name": "블루 데님 셔츠",
+      "category": "shirt",
+      "color": "blue",
+      "price": 52000,
+      "releasedAt": "2026-11-08",
+      "isNew": true,
+      "material": "면 100% 데님",
+      "fit": "레귤러 핏",
+      "care": "첫 세탁은 단독 찬물 세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 4
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "black-corduroy-shirt",
+      "name": "블랙 코듀로이 셔츠",
+      "category": "shirt",
+      "color": "black",
+      "price": 52000,
+      "releasedAt": "2026-10-02",
+      "isNew": false,
+      "material": "면 100% 코듀로이",
+      "fit": "오버사이즈 핏",
+      "care": "뒤집어서 찬물 세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 2
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "light-blue-linen-shirt",
+      "name": "라이트 블루 린넨 셔츠",
+      "category": "shirt",
+      "color": "blue",
+      "price": 45000,
+      "releasedAt": "2026-09-25",
+      "isNew": false,
+      "material": "린넨 100%",
+      "fit": "릴랙스드 핏",
+      "care": "찬물 손세탁, 다림질은 중온",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 1
+        },
+        {
+          "size": "M",
+          "stock": 2
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 0
+        }
+      ]
+    },
+    {
+      "id": "indigo-straight-denim",
+      "name": "인디고 스트레이트 데님",
+      "category": "trousers",
+      "color": "navy",
+      "price": 54000,
+      "releasedAt": "2026-10-20",
+      "isNew": false,
+      "material": "면 99%, 스판 1%",
+      "fit": "스트레이트 핏",
+      "care": "뒤집어서 찬물 세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "beige-wide-chino",
+      "name": "베이지 와이드 치노",
+      "category": "trousers",
+      "color": "stone",
+      "price": 49000,
+      "releasedAt": "2026-09-30",
+      "isNew": false,
+      "material": "면 100%",
+      "fit": "와이드 핏",
+      "care": "세탁기 사용 가능, 건조기 금지",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "grey-tapered-slacks",
+      "name": "그레이 테이퍼드 슬랙스",
+      "category": "trousers",
+      "color": "grey",
+      "price": 52000,
+      "releasedAt": "2026-10-11",
+      "isNew": false,
+      "material": "폴리에스터 65%, 레이온 33%, 스판 2%",
+      "fit": "테이퍼드 핏",
+      "care": "드라이클리닝 권장",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "khaki-cargo-pants",
+      "name": "카키 카고 팬츠",
+      "category": "trousers",
+      "color": "khaki",
+      "price": 58000,
+      "releasedAt": "2026-11-14",
+      "isNew": true,
+      "material": "면 100% 트윌",
+      "fit": "릴랙스드 핏",
+      "care": "세탁기 사용 가능",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 4
+        },
+        {
+          "size": "XL",
+          "stock": 2
+        }
+      ]
+    },
+    {
+      "id": "offwhite-wide-denim",
+      "name": "오프화이트 와이드 데님",
+      "category": "trousers",
+      "color": "white",
+      "price": 55000,
+      "releasedAt": "2026-10-05",
+      "isNew": false,
+      "material": "면 100%",
+      "fit": "와이드 핏",
+      "care": "뒤집어서 찬물 세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 2
+        },
+        {
+          "size": "L",
+          "stock": 1
+        },
+        {
+          "size": "XL",
+          "stock": 0
+        }
+      ]
+    },
+    {
+      "id": "olive-cotton-pants",
+      "name": "올리브 코튼 팬츠",
+      "category": "trousers",
+      "color": "khaki",
+      "price": 48000,
+      "releasedAt": "2026-09-18",
+      "isNew": false,
+      "material": "면 98%, 스판 2%",
+      "fit": "레귤러 핏",
+      "care": "세탁기 사용 가능",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 1
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "ivory-rib-knit",
+      "name": "아이보리 립 니트",
+      "category": "knit",
+      "color": "ivory",
+      "price": 42000,
+      "releasedAt": "2026-10-25",
+      "isNew": false,
+      "material": "울 30%, 아크릴 70%",
+      "fit": "레귤러 핏",
+      "care": "울 코스 또는 손세탁, 눕혀서 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 3
+        },
+        {
+          "size": "M",
+          "stock": 4
+        },
+        {
+          "size": "L",
+          "stock": 3
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "black-cotton-cardigan",
+      "name": "블랙 코튼 카디건",
+      "category": "knit",
+      "color": "black",
+      "price": 58000,
+      "releasedAt": "2026-10-18",
+      "isNew": false,
+      "material": "면 100%",
+      "fit": "레귤러 핏",
+      "care": "울 코스 또는 손세탁, 눕혀서 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 3
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "charcoal-wool-cardigan",
+      "name": "차콜 울 카디건",
+      "category": "knit",
+      "color": "charcoal",
+      "price": 62000,
+      "releasedAt": "2026-11-02",
+      "isNew": true,
+      "material": "울 100%",
+      "fit": "릴랙스드 핏",
+      "care": "드라이클리닝 권장",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 1
+        },
+        {
+          "size": "M",
+          "stock": 2
+        },
+        {
+          "size": "L",
+          "stock": 2
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "wine-vneck-knit",
+      "name": "와인 브이넥 니트",
+      "category": "knit",
+      "color": "brown",
+      "price": 49000,
+      "releasedAt": "2026-10-08",
+      "isNew": false,
+      "material": "울 50%, 나일론 50%",
+      "fit": "슬림 핏",
+      "care": "울 코스 또는 손세탁, 눕혀서 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 2
+        },
+        {
+          "size": "M",
+          "stock": 0
+        },
+        {
+          "size": "L",
+          "stock": 1
+        },
+        {
+          "size": "XL",
+          "stock": 1
+        }
+      ]
+    },
+    {
+      "id": "grey-crewneck-sweatshirt",
+      "name": "그레이 크루넥 스웨트셔츠",
+      "category": "knit",
+      "color": "grey",
+      "price": 39000,
+      "releasedAt": "2026-11-16",
+      "isNew": true,
+      "material": "면 80%, 폴리에스터 20%",
+      "fit": "오버사이즈 핏",
+      "care": "뒤집어서 세탁기 사용 가능",
+      "image": null,
+      "options": [
+        {
+          "size": "S",
+          "stock": 5
+        },
+        {
+          "size": "M",
+          "stock": 6
+        },
+        {
+          "size": "L",
+          "stock": 6
+        },
+        {
+          "size": "XL",
+          "stock": 3
+        }
+      ]
+    },
+    {
+      "id": "brown-leather-belt",
+      "name": "브라운 레더 벨트",
+      "category": "accessory",
+      "color": "brown",
+      "price": 25000,
+      "releasedAt": "2026-08-30",
+      "isNew": false,
+      "material": "소가죽 100%",
+      "fit": "FREE 사이즈(허리 28~36인치)",
+      "care": "물기를 피하고 마른 천으로 관리",
+      "image": null,
+      "options": [
+        {
+          "size": "FREE",
+          "stock": 12
+        }
+      ]
+    },
+    {
+      "id": "black-wool-muffler",
+      "name": "블랙 울 머플러",
+      "category": "accessory",
+      "color": "black",
+      "price": 35000,
+      "releasedAt": "2026-11-19",
+      "isNew": true,
+      "material": "울 100%",
+      "fit": "FREE 사이즈(30×180cm)",
+      "care": "울 코스 또는 손세탁",
+      "image": null,
+      "options": [
+        {
+          "size": "FREE",
+          "stock": 9
+        }
+      ]
+    },
+    {
+      "id": "navy-knit-beanie",
+      "name": "네이비 니트 비니",
+      "category": "accessory",
+      "color": "navy",
+      "price": 22000,
+      "releasedAt": "2026-11-21",
+      "isNew": true,
+      "material": "아크릴 100%",
+      "fit": "FREE 사이즈",
+      "care": "손세탁 후 눕혀서 건조",
+      "image": null,
+      "options": [
+        {
+          "size": "FREE",
+          "stock": 0
+        }
+      ]
+    }
+  ]
+}

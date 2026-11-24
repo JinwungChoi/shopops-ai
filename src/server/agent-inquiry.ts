@@ -4,9 +4,10 @@ import type { Answer } from "@/lib/demo";
 import type { ReportProgress } from "@/lib/chat-progress";
 import { orderReference, referenceSchema, type AgentState } from "./agent-intent";
 import { runAgentLoop } from "./agent-loop";
-import { createToolSelector, productFilters, type PresentedOrder } from "./agent-routing";
+import { createToolSelector, productFilters, type PresentedOrder, type RecentTurn } from "./agent-routing";
 import { runAgentWorkflow } from "./agent-workflow";
-import { catalogAnswer, type CatalogFilters } from "./catalog";
+import { catalogAnswer, type CatalogEntry, type CatalogFilters } from "./catalog";
+import { loadCatalog, prepareCheckout, productDetail, updateCart, viewCart } from "./store";
 import { listOrders, listReturnEligibility, orderLoginRequired, trackShipment } from "./mock-orders";
 
 const orderContextSchema = z.object({
@@ -27,13 +28,16 @@ export function presentedOrders(value: unknown): PresentedOrder[] {
 }
 
 type Inquiry = {
-  tenantId: string; sessionId: string; customerId?: string; question: string;
+  tenantId: string; sessionId: string; customerId?: string; question: string; requestId: string;
   filters?: CatalogFilters; prior?: AgentState; previousOrders: PresentedOrder[]; lastOrder?: string;
-  report?: ReportProgress; policyAnswer: (query: string, prompt: string, policyPart: boolean) => Promise<Answer>;
+  recentTurns?: RecentTurn[]; report?: ReportProgress; policyAnswer: (query: string, prompt: string, policyPart: boolean) => Promise<Answer>;
 };
 
-export async function answerInquiry({ tenantId, sessionId, customerId, question, filters, prior, previousOrders, lastOrder, report, policyAnswer }: Inquiry) {
-  const select = createToolSelector(question, filters, prior, previousOrders);
+export async function answerInquiry({ tenantId, sessionId, customerId, question, requestId, filters, prior, previousOrders, lastOrder, recentTurns, report, policyAnswer }: Inquiry) {
+  // 현재 장바구니는 DB에서 읽어 모델 문맥에 넣는다. 수량 변경·주문 요청을 장바구니 기준으로 판단하게 하기 위해서다.
+  const currentCart = customerId ? (await viewCart({ tenantId, sessionId, customerId })).cart : undefined;
+  const select = createToolSelector(question, filters, prior, previousOrders,
+    currentCart?.lines.map(({ productId, name, size, quantity }) => ({ productId, name, size, quantity })), recentTurns);
   const known = new Set(previousOrders.map(({ reference }) => reference));
   if (prior?.reference) known.add(prior.reference);
   const statedRef = orderReference(question);
@@ -43,6 +47,11 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   let catalogResult: Answer | undefined;
   let workflowResult: Awaited<ReturnType<typeof runAgentWorkflow>> | undefined;
   let nextFilters: CatalogFilters | undefined;
+  let shopResult: Answer | undefined;
+  let checkoutApproval: string | undefined;
+  let catalog: CatalogEntry[] | undefined;
+  const products = async () => catalog ??= await loadCatalog(tenantId);
+  const scope = { tenantId, sessionId, customerId };
 
   const status = await runAgentLoop(async (observation) => {
     report?.(observation === undefined ? "routing" : "review_result");
@@ -56,8 +65,34 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     if (tool.name === "search_products") {
       report?.("search_products");
       nextFilters = productFilters(tool.args, nextFilters ?? filters);
-      catalogResult = { ...catalogAnswer(nextFilters), toolUsed: "search_products" };
+      catalogResult = { ...catalogAnswer(nextFilters, await products()), toolUsed: "search_products" };
       return { answer: catalogResult.answer, products: catalogResult.catalog?.products };
+    }
+    if (tool.name === "get_product") {
+      report?.("get_product");
+      shopResult = await productDetail(tenantId, tool.args.productId, tool.args.productHint);
+      return { answer: shopResult.answer, product: shopResult.product };
+    }
+    if (tool.name === "view_cart" || tool.name === "add_to_cart" || tool.name === "update_cart_item") {
+      report?.(tool.name === "view_cart" ? "view_cart" : "update_cart");
+      if (tool.name === "view_cart") {
+        shopResult = await viewCart(scope);
+      } else {
+        const name = (await products()).find((entry) => entry.id === tool.args.productId)?.name ?? "해당 상품";
+        // 같은 채팅 요청의 재전송이면 DB가 중복 반영을 막는다.
+        const key = [requestId, tool.name, tool.args.productId, tool.args.size, tool.args.quantity].join(":");
+        shopResult = await updateCart(scope, key, tool.args.productId, tool.args.size, tool.args.quantity,
+          tool.name === "add_to_cart" ? "add" : "set", name);
+      }
+      return { answer: shopResult.answer, cart: shopResult.cart };
+    }
+    if (tool.name === "prepare_checkout") {
+      report?.("prepare_checkout");
+      const draft = await prepareCheckout(scope);
+      shopResult = draft.answer;
+      checkoutApproval = draft.approvalId;
+      // 승인 ID는 화면 카드에만 두고 모델에는 전달하지 않는다.
+      return { answer: shopResult.answer, awaiting: shopResult.action?.kind, cart: shopResult.cart };
     }
     const referenceArg = "orderReference" in tool.args ? tool.args.orderReference : null;
     const reference = statedRef ?? (referenceArg && known.has(referenceArg) ? referenceArg : null);
@@ -119,18 +154,20 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     answer: [...new Set(groundedPolicies.map((entry) => entry.answer))].join("\n\n"),
     sources: citations, abstained: false, toolUsed: "search_policies" as const,
   } : policies[0];
-  const answers = [orderResult, catalogResult, workflowResult?.answer].filter((answer) => answer !== undefined);
+  const answers = [orderResult, catalogResult, workflowResult?.answer, shopResult].filter((answer) => answer !== undefined);
   // 조회 도구가 모두 보류(로그인 필요 등)이고 정책 답변이 있으면 정책을 주 답변으로 둔다.
   const policyLeads = policy !== undefined && answers.every((answer) => answer.abstained);
   const primary = policyLeads ? undefined : answers.at(-1);
-  const clarification = status === "clarify" && !workflowResult?.answer.action
-    ? answers.length ? "확인할 주문번호나 상품명을 알려주세요." : helpPrompt : undefined;
-  const incomplete = status === "incomplete" && !workflowResult?.answer.action
+  const pendingCard = workflowResult?.answer.action ?? shopResult?.action;
+  const clarification = status === "clarify" && !pendingCard
+    ? catalogResult || shopResult?.product ? "원하는 사이즈를 골라 주세요. 수량을 말하지 않으면 1개로 담아요."
+      : answers.length ? "확인할 주문번호나 상품명을 알려주세요." : helpPrompt : undefined;
+  const incomplete = status === "incomplete" && !pendingCard
     ? "추가 확인이 필요한 내용은 다시 물어봐 주세요." : undefined;
   const result: Answer | undefined = primary ? {
     ...primary,
     answer: [...new Set([...answers.map((entry) => entry.answer), clarification, incomplete].filter(Boolean))].join("\n\n"),
-    orders: orderResult?.orders, catalog: catalogResult?.catalog,
+    orders: orderResult?.orders, catalog: catalogResult?.catalog, cart: shopResult?.cart, product: shopResult?.product,
     abstained: answers.every((answer) => answer.abstained),
   } : policy ? {
     ...policy, answer: [policy.answer, ...answers.map((entry) => entry.answer)].join("\n\n"),
@@ -138,5 +175,8 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     answer: clarification ?? helpPrompt,
     sources: [], abstained: true,
   };
-  return { result, supplementaryPolicy: primary ? policy : undefined, filters: nextFilters, checkpoint: workflowResult?.checkpoint };
+  const checkpoint: AgentState | undefined = workflowResult?.checkpoint ?? (checkoutApproval ? {
+    intent: "checkout", reference: null, reason: null, waiting: "approval", approvalId: checkoutApproval, approvalKind: "checkout",
+  } : undefined);
+  return { result, supplementaryPolicy: primary ? policy : undefined, filters: nextFilters, checkpoint };
 }

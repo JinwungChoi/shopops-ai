@@ -17,6 +17,7 @@ const customerB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const approvalId = "55555555-5555-4555-8555-555555555555";
 const receiptId = "66666666-6666-4666-8666-666666666666";
+const checkoutId = "88888888-8888-4888-8888-888888888888";
 
 // 고객 A 12건(최신순), 고객 B와 다른 업체 주문은 같은 판정이어도 결과에 섞이면 안 된다.
 const a = (ref: string, name: string, status: Row["status"], eligibility: Eligibility, day: number): Row =>
@@ -50,6 +51,8 @@ const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
 // list_mock_return_eligibility의 필터 순서(업체·고객 → 주문번호 → 상품 → 표시 범위 → 최신 20건)를 따르는 가짜 DB.
 const fakeClient = {
   rpc: async (name: string, args: Record<string, unknown>) => {
+    // 매 턴 읽는 장바구니 문맥 조회는 기록하지 않는다. 아래 검증은 판정·변경 RPC만 본다.
+    if (name === "mock_cart_view") return { data: { lines: [], subtotal: 0, shippingFee: 0, total: 0 }, error: null };
     rpcCalls.push({ name, args });
     // 승인 RPC 응답은 형식만 흉내 낸다. 소유권·만료·단일 접수 판정은 pgTAP(agent_actions.sql)가 검증한다.
     if (name === "prepare_agent_action") {
@@ -57,6 +60,16 @@ const fakeClient = {
     }
     if (name === "decide_agent_action") {
       return { data: args.p_confirm ? { status: "confirmed", kind: "return", receipt: receiptId } : { status: "canceled" }, error: null };
+    }
+    // 장바구니·주문 RPC도 응답 형식만 흉내 낸다. 재고·가격·중복 판정은 pgTAP(shopping.sql)가 검증한다.
+    if (name === "update_mock_cart") {
+      return { data: { status: "ok", cart: { lines: [{ productId: args.p_product, name: "블랙 트윌 재킷", size: args.p_size,
+        quantity: args.p_quantity, unitPrice: 69000, lineTotal: 69000 * (args.p_quantity as number) }],
+        subtotal: 69000, shippingFee: 0, total: 69000 } }, error: null };
+    }
+    if (name === "prepare_mock_checkout") {
+      return { data: { status: "pending", id: checkoutId, expiresAt: "2026-11-25T12:10:00+00:00", cart: { lines: [{ productId: "black-twill-jacket",
+        name: "블랙 트윌 재킷", size: "M", quantity: 1, unitPrice: 69000, lineTotal: 69000 }], subtotal: 69000, shippingFee: 0, total: 69000 } }, error: null };
     }
     if (name !== "list_mock_return_eligibility") return { data: null, error: { message: "unexpected rpc" } };
     const presented = args.p_presented as string[] | null;
@@ -73,7 +86,8 @@ const fakeClient = {
     let limit = Infinity;
     const query = {
       select: () => query,
-      eq: (column: string, value: string) => {
+      eq: (column: string, value: string | boolean) => {
+        if (table === "mock_products") return query;
         const key = ({ tenant_id: "tenant", customer_user_id: "customer", order_reference: "ref", status: "status" } as const)[column];
         if (!key) throw new Error("unexpected column " + column);
         filters.push((row) => row[key] === value);
@@ -88,6 +102,9 @@ const fakeClient = {
       limit: (count: number) => { limit = count; return query; },
       then: (resolve: (value: { data: unknown; error: null }) => void) => {
         if (table === "mock_shipment_events") return resolve({ data: [], error: null });
+        if (table === "mock_products") return resolve({ data: [{ id: "black-twill-jacket", name: "블랙 트윌 재킷", category: "jacket",
+          color: "black", price: 69000, released_at: "2026-11-23", is_new: true, material: "면", fit: "레귤러 핏", care: "손세탁",
+          image: null, mock_product_options: [{ size: "M", stock: 7 }, { size: "L", stock: 0 }] }], error: null });
         resolve({ data: newestFirst(rows.filter((row) => filters.every((match) => match(row)))).slice(0, limit).map(toDb), error: null });
       },
     };
@@ -133,7 +150,7 @@ const refs = (result: OrderResult | undefined) => result && result.kind !== "shi
 // live-chat.ts처럼 직전 턴의 order_response만 다음 턴의 이전 주문 범위로 넘긴다.
 async function chat(question: string, routes: AgentRoute[], displayed?: OrderResult, customerId: string | null = customerA) {
   script = routes;
-  return answerInquiry({ tenantId, sessionId, customerId: customerId ?? undefined, question, previousOrders: presentedOrders(displayed), report: undefined, policyAnswer });
+  return answerInquiry({ tenantId, sessionId, customerId: customerId ?? undefined, question, requestId: "77777777-7777-4777-8777-777777777777", previousOrders: presentedOrders(displayed), report: undefined, policyAnswer });
 }
 
 beforeEach(() => {
@@ -319,6 +336,30 @@ describe("일반 쇼핑몰 문의 회귀", () => {
     expect(rpcCalls.at(-1)?.args).toMatchObject({ p_tenant: tenantId, p_customer: customerA });
     expect(refs(why.result.orders)).toEqual(["STY-1001"]);
     expect(why.result.answer).toContain("아직 배송 완료 전이에요.");
+  });
+});
+
+describe("장바구니와 모의 주문", () => {
+  it("담기는 요청 ID를 붙여 DB에 보내고, 주문은 확인 카드까지만 만든다", async () => {
+    const result = await chat("블랙 트윌 재킷 M 하나 사고 싶어요", [
+      { name: "add_to_cart", args: { productId: "black-twill-jacket", size: "M", quantity: 1 } },
+      { name: "prepare_checkout", args: {} }, finish]);
+    const add = rpcCalls.find(({ name }) => name === "update_mock_cart");
+    expect(add?.args).toMatchObject({ p_tenant: tenantId, p_session: sessionId, p_customer: customerA,
+      p_product: "black-twill-jacket", p_size: "M", p_quantity: 1, p_mode: "add" });
+    expect(String(add?.args.p_request)).toContain("77777777-7777-4777-8777-777777777777");
+    expect(rpcCalls.map(({ name }) => name)).not.toContain("decide_agent_action");
+    expect(result.result.action).toMatchObject({ kind: "checkout", id: checkoutId, cart: { total: 69000 } });
+    expect(result.checkpoint).toMatchObject({ intent: "checkout", waiting: "approval", approvalId: checkoutId, approvalKind: "checkout" });
+    expect(JSON.stringify(modelTurns[0].observations)).not.toContain(checkoutId);
+    expect(modelTurns[0].observations[0]).toMatchObject({ answer: expect.stringContaining("장바구니에 담았어요") });
+  });
+
+  it("로그인하지 않으면 장바구니와 주문 RPC를 호출하지 않는다", async () => {
+    const result = await chat("M 담아줘", [{ name: "add_to_cart", args: { productId: "black-twill-jacket", size: "M", quantity: 1 } }, finish], undefined, null);
+    expect(rpcCalls).toHaveLength(0);
+    expect(result.result).toMatchObject({ abstained: true });
+    expect(result.result.answer).toContain("로그인");
   });
 });
 

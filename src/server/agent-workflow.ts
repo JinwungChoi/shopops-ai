@@ -13,9 +13,10 @@ type Candidate = Awaited<ReturnType<typeof findActionOrders>>[number];
 const rpcResponse = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending"), id: z.uuid(), expiresAt: z.iso.datetime({ offset: true }),
     quantity: z.int().positive().nullable(), fee: z.int().nonnegative().nullable() }),
-  z.object({ status: z.literal("confirmed"), kind: z.enum(["return", "support"]), receipt: z.uuid() }),
+  z.object({ status: z.literal("confirmed"), kind: z.enum(["return", "support", "checkout"]), receipt: z.uuid(),
+    orders: z.array(z.string()).optional(), total: z.int().optional() }),
   z.object({ status: z.enum(["missing", "not_delivered", "already_submitted", "too_late", "review", "invalid",
-    "expired", "canceled", "condition_required", "already_confirmed"]) }),
+    "expired", "canceled", "condition_required", "already_confirmed", "cart_changed", "out_of_stock"]) }),
 ]);
 
 function message(answer: string, props: Partial<Answer> = {}): Answer {
@@ -27,7 +28,7 @@ const State = Annotation.Root({
   question: Annotation<string>(),
   intent: Annotation<ActionIntent | undefined>(),
   decision: Annotation<ActionDecision | undefined>(),
-  approvalKind: Annotation<"return" | "support" | undefined>(),
+  approvalKind: Annotation<"return" | "support" | "checkout" | undefined>(),
   prior: Annotation<AgentState | undefined>(),
   lastOrder: Annotation<string | undefined>(),
   report: Annotation<ReportProgress | undefined>(),
@@ -53,6 +54,8 @@ const statusMessages = {
   canceled: "접수 요청을 취소했어요.",
   condition_required: "미사용 상품이며 태그와 구성품이 모두 있는지 확인해 주세요.",
   already_confirmed: "이미 접수된 요청이에요.",
+  cart_changed: "주문 확인 후 장바구니나 가격이 바뀌었어요. 주문 내용을 다시 확인해 주세요.",
+  out_of_stock: "그 사이 재고가 부족해져 주문하지 못했어요. 장바구니를 다시 확인해 주세요.",
 };
 
 async function locate({ scope, question, intent, prior, lastOrder, report }: GraphState): Promise<Partial<GraphState>> {
@@ -148,7 +151,7 @@ export function decisionContent(decision: ActionDecision) {
 async function decide({ scope, decision, approvalKind, report, prior }: GraphState): Promise<Partial<GraphState>> {
   if (!decision || !scope.customerId) throw new DemoError(401, "접수하려면 데모 고객으로 로그인해 주세요.");
   if (decision.decision === "confirm" && approvalKind) {
-    report?.(approvalKind === "return" ? "submit_return_request" : "create_support_ticket");
+    report?.(approvalKind === "return" ? "submit_return_request" : approvalKind === "checkout" ? "place_order" : "create_support_ticket");
   }
   const { data, error } = await serverClient().rpc("decide_agent_action", {
     ...scopeArgs(scope), p_approval: decision.approvalId, p_confirm: decision.decision === "confirm",
@@ -160,12 +163,22 @@ async function decide({ scope, decision, approvalKind, report, prior }: GraphSta
   if (response.status === "condition_required") throw new DemoError(400, statusMessages.condition_required);
   const checkpoint = prior?.approvalId === decision.approvalId ? { ...prior, waiting: "closed" as const } : undefined;
   if (response.status === "confirmed") {
+    if (response.kind === "checkout") {
+      const refs = response.orders ?? [];
+      return { checkpoint, result: message(`모의 결제로 주문을 완료했어요. 주문번호 ${refs.join(", ")}` +
+        (response.total !== undefined ? ` · 결제 금액 ${response.total.toLocaleString("ko-KR")}원` : ""), {
+        toolUsed: "place_order",
+        action: { kind: "receipt", action: "checkout", id: response.receipt, approvalId: decision.approvalId, orders: refs, total: response.total },
+      }) };
+    }
     const isReturn = response.kind === "return";
     return { checkpoint, result: message(isReturn ? "반품을 접수했어요." : "상담팀에 문의를 남겼어요.",
       { toolUsed: isReturn ? "submit_return_request" : "create_support_ticket",
         action: { kind: "receipt", action: response.kind, id: response.receipt, approvalId: decision.approvalId } }) };
   }
-  return { checkpoint, result: message(response.status === "pending" ? "아직 확인을 기다리고 있어요." : statusMessages[response.status],
+  const closedMessage = approvalKind === "checkout" && response.status === "canceled" ? "주문을 취소했어요. 장바구니는 그대로 남아 있어요."
+    : response.status === "pending" ? "아직 확인을 기다리고 있어요." : statusMessages[response.status];
+  return { checkpoint, result: message(closedMessage,
     { action: { kind: "closed", approvalId: decision.approvalId } }) };
 }
 
@@ -179,6 +192,8 @@ const graph = new StateGraph(State)
   .addEdge("prepare", END)
   .addEdge("decide", END)
   .compile();
+
+export const agentWorkflowGraph = graph;
 
 export async function runAgentWorkflow(input: Pick<GraphState, "scope" | "question" | "intent" | "decision" | "approvalKind" | "prior" | "lastOrder" | "report">) {
   const output = await graph.invoke(input, { recursionLimit: 8 });

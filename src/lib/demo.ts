@@ -21,13 +21,18 @@ export type ProductCard = {
   name: string;
   color: string;
   price: number;
-  image: string;
+  image: string | null;
   releasedAt: string;
   options: { size: string; available: boolean }[];
 };
 export type CatalogResult = { products: ProductCard[] };
 export type AgentTool = "search_policies" | "search_products" | "get_order_status" | "list_orders" | "track_shipment"
-  | "check_return_eligibility" | "submit_return_request" | "create_support_ticket";
+  | "check_return_eligibility" | "submit_return_request" | "create_support_ticket"
+  | "get_product" | "view_cart" | "update_cart" | "prepare_checkout" | "place_order";
+export type CartLine = { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number };
+export type CartResult = { lines: CartLine[]; subtotal: number; shippingFee: number; total: number };
+export type ProductDetail = { id: string; name: string; price: number; material: string; fit: string; care: string;
+  image: string | null; options: { size: string; stock: number }[] };
 export type OrderSummary = { reference: string; name: string; orderedAt: string; status: string; quantity: number; total: number | null };
 export type ReturnEligibility = "eligible" | "not_delivered" | "too_late" | "already_submitted" | "review";
 export type OrderResult =
@@ -41,9 +46,11 @@ export type AgentAction =
   | { kind: "return_reason" }
   | { kind: "approval"; id: string; action: "return" | "support"; reason: string; expiresAt: string;
       order?: OrderSummary; quantity: number | null; fee: number | null }
-  | { kind: "receipt"; action: "return" | "support"; id: string; approvalId: string }
+  | { kind: "checkout"; id: string; expiresAt: string; cart: CartResult }
+  | { kind: "receipt"; action: "return" | "support" | "checkout"; id: string; approvalId: string; orders?: string[]; total?: number }
   | { kind: "closed"; approvalId: string };
-export type Answer = { answer: string; sources: Source[]; abstained: boolean; catalog?: CatalogResult; toolUsed?: AgentTool; orders?: OrderResult; action?: AgentAction };
+export type Answer = { answer: string; sources: Source[]; abstained: boolean; catalog?: CatalogResult; toolUsed?: AgentTool; orders?: OrderResult; action?: AgentAction;
+  cart?: CartResult; product?: ProductDetail };
 
 export const categories: Record<Category, string> = {
   returns: "반품", shipping: "배송", exchange: "교환", support: "고객지원",

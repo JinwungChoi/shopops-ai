@@ -11,6 +11,11 @@ export const progressLabels = {
   check_return_eligibility: "주문과 반품 조건 확인 중",
   submit_return_request: "반품 접수 중",
   create_support_ticket: "상담 문의 접수 중",
+  get_product: "상품 상세와 사이즈별 재고 확인 중",
+  view_cart: "장바구니 확인 중",
+  update_cart: "장바구니 변경 중",
+  prepare_checkout: "주문 내용 확인 중",
+  place_order: "모의 결제로 주문 중",
   compose: "확인한 정책으로 답변 정리 중",
 } as const;
 

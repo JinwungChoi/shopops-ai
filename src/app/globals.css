@@ -301,3 +301,13 @@ button:disabled { cursor: default; }
 .shipment-events li::before { content: ""; position: absolute; top: 6px; left: -17px; width: 7px; height: 7px; border: 1px solid var(--muted); border-radius: 50%; background: var(--background); }
 .shipment-events li[data-latest="true"]::before { background: var(--accent); }
 .shipment-events li span { color: var(--muted); }
+
+/* 장바구니·주문 확인 카드와 이미지 없는 상품 */
+.product-image-empty { display: grid; place-items: center; aspect-ratio: 1; color: var(--muted); }
+.cart-lines { display: grid; gap: 5px; margin-top: 6px; font-size: 13px; }
+.cart-lines li, .cart-total { display: flex; justify-content: space-between; gap: 12px; }
+.cart-lines li span:last-child { white-space: nowrap; }
+.cart-total { margin-top: 4px; padding-top: 7px; border-top: 1px solid var(--border); font-size: 13px; }
+.product-options > li:has(.size-pick) { padding: 0; }
+.size-pick { padding: 2px 8px; border-radius: 5px; font-size: 11px; cursor: pointer; transition: background .16s, color .16s; }
+.size-pick:hover, .size-pick:focus-visible { background: var(--foreground); color: var(--background); }

@@ -167,7 +167,7 @@ async function answerCustomerMessage(input: {
 
 ### 4.3 LangGraph 상태·워크플로
 
-Style Shop의 일반 상담은 모델이 조회 도구를 선택하고 LangChain의 `ToolMessage`로 실행 결과를 받아 다음 도구나 종료를 선택한다. 턴마다 최대 네 번 결정하며, 동일한 조회는 결과를 재사용한다. 이전 주문 카드는 인증된 세션에서 읽는다. `previous_orders` 요청은 서버가 확보한 이전 주문번호 목록을 사용하며 DB가 업체와 고객 범위를 다시 적용한다. 반품·상담 업무는 LangGraph로 초안을 준비한다. 접수 실행은 구조화된 고객 확인 요청을 통해서만 들어온다.
+Style Shop의 일반 상담은 모델이 조회 도구를 선택하고 LangChain의 `ToolMessage`로 실행 결과를 받아 다음 도구나 종료를 선택한다. 이 반복은 LangGraph `StateGraph`(`decide` → `act` → `decide` … → 종료, `src/server/agent-loop.ts`)로 실행한다. 턴마다 최대 다섯 번 결정하며, 동일한 조회는 결과를 재사용한다. 이전 주문 카드는 인증된 세션에서 읽는다. `previous_orders` 요청은 서버가 확보한 이전 주문번호 목록을 사용하며 DB가 업체와 고객 범위를 다시 적용한다. 반품·상담 업무는 LangGraph로 초안을 준비한다. 접수 실행은 구조화된 고객 확인 요청을 통해서만 들어온다.
 
 `list_returnable_orders`는 현재 신청 가능한 주문만 반환한다. 특정 주문의 판정이나 전체 주문의 판정 사유를 묻는 경우 `check_order_return_status`를 사용한다. 두 도구는 같은 서버 정책 판정을 사용하며, 목록의 건수와 카드는 동일한 결과 집합에서 만든다.
 
