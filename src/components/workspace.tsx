@@ -1,0 +1,514 @@
+"use client";
+
+import Image from "next/image";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import {
+  ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, FileText,
+  Layers3, MessageSquare, Package, Plus, RotateCcw, Undo2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { categories, shops, showcaseShop, suggestions, type ActionDecision, type AgentAction, type AgentTool, type Answer, type CatalogResult, type Document, type OrderResult, type ShopId } from "@/lib/demo";
+
+import { progressLabels, type ChatEvent, type ProgressStage, type ReportProgress } from "@/lib/chat-progress";
+
+type View = "chat" | "knowledge";
+type Session = { sessionId: string; sessionToken: string };
+type Turn = { id: string; question: string; decision?: ActionDecision; progress?: ProgressStage; result?: Answer; error?: string; finishing?: boolean };
+type SavedMessage = {
+  id: string; role: "assistant" | "user"; content: string; reply_to_id: string | null; client_request_id: string | null;
+  source_refs: Answer["sources"]; abstained: boolean; catalog_response: Answer["catalog"]; tool_name: Answer["toolUsed"];
+  order_response: Answer["orders"]; agent_response: Answer["action"]; agent_input: ActionDecision | null;
+};
+const sessionKey = (widget: string) => "shopops-chat:" + widget;
+
+function savedTurns(messages: SavedMessage[]): Turn[] {
+  const replies = new Map(messages.filter((row) => row.role === "assistant").map((row) => [row.reply_to_id, row]));
+  return messages.filter((row) => row.role === "user" && replies.has(row.id)).map((row) => {
+    const reply = replies.get(row.id)!;
+    return { id: row.client_request_id ?? row.id, question: row.content, decision: row.agent_input ?? undefined,
+      result: { answer: reply.content, sources: reply.source_refs, abstained: reply.abstained,
+        catalog: reply.catalog_response, toolUsed: reply.tool_name, orders: reply.order_response, action: reply.agent_response } };
+  });
+}
+const shortcutIcons = { new: Package, returns: Undo2, shipping: Package, exchange: RotateCcw };
+const minProgressMotionMs = 520;
+const minStageDisplayMs = 280;
+const searchExitMs = 140;
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(path, { cache: "no-store", ...options });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message ?? "요청을 처리하지 못했어요.");
+  return data as T;
+}
+
+function json(method: string, body: unknown): RequestInit {
+  return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
+async function requestAnswer(options: RequestInit, report: ReportProgress): Promise<Answer> {
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/x-ndjson");
+  const response = await fetch("/api/public/messages", { ...options, headers, cache: "no-store" });
+  if (!response.ok || !response.headers.get("content-type")?.includes("application/x-ndjson")) {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message ?? "요청을 처리하지 못했어요.");
+    return data as Answer;
+  }
+
+  if (!response.body) throw new Error("답변을 받지 못했어요. 다시 시도해 주세요.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line) continue;
+        const event = JSON.parse(line) as ChatEvent;
+        if (event.type === "progress") report(event.stage);
+        else if (event.type === "answer") return event.data;
+        else if (event.type === "error") throw new Error(event.message);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  throw new Error("답변을 받는 중 연결이 끊겼어요. 다시 시도해 주세요.");
+}
+
+function Brand({ compact = false }: { compact?: boolean }) {
+  return <div className="brand"><span className="brand-mark"><Layers3 size={19} /></span>{!compact && <span>ShopOps AI</span>}</div>;
+}
+
+export function Workspace() {
+  const [view, setView] = useState<View>("chat");
+  const [generation, setGeneration] = useState(0);
+  const current = shops[showcaseShop];
+
+  return <div className="workspace">
+    <aside className="sidebar">
+      <Brand />
+      <div className="side-body">
+        <nav aria-label="워크스페이스">
+          <button className="nav-item" aria-current={view === "chat" ? "page" : undefined} onClick={() => setView("chat")}><MessageSquare size={17} /> 상담 테스트</button>
+          <button className="nav-item" aria-current={view === "knowledge" ? "page" : undefined} onClick={() => setView("knowledge")}><BookOpen size={17} /> 지식베이스</button>
+        </nav>
+      </div>
+      <span className="demo-label">데모</span>
+    </aside>
+
+    <div className="body-area">
+      <header className="topbar">
+        <div className="breadcrumbs"><strong>{current.name}</strong></div>
+        {view === "chat" && <Button className="secondary new-chat" onClick={() => setGeneration((value) => value + 1)}><Plus size={15} /> 새 대화</Button>}
+      </header>
+      {view === "chat" ? <Chat key={generation} shop={showcaseShop} publicMode={false} catalogEnabled /> : <Knowledge shop={showcaseShop} />}
+    </div>
+  </div>;
+}
+
+export function PublicWidget({ widgetKey, name, catalogEnabled = false, customerEnabled = false }: { widgetKey: string; name: string; catalogEnabled?: boolean; customerEnabled?: boolean }) {
+  const [generation, setGeneration] = useState(0);
+  function resetChat() {
+    if (customerEnabled) sessionStorage.removeItem(sessionKey(widgetKey));
+    setGeneration((value) => value + 1);
+  }
+
+  return <div className="workspace public-workspace"><div className="body-area">
+    <header className="topbar"><div className="breadcrumbs"><Brand compact /><strong>{name}</strong></div>
+      <div className="chat-header-actions">
+        {customerEnabled && <CustomerAccess onChange={resetChat} />}
+        <Button className="secondary new-chat" onClick={resetChat}><Plus size={15} /> 새 대화</Button>
+      </div>
+    </header>
+    <Chat key={generation} shop={showcaseShop} publicMode widgetKey={widgetKey} catalogEnabled={catalogEnabled} resume={customerEnabled} />
+  </div></div>;
+}
+
+function CustomerAccess({ onChange }: { onChange: () => void }) {
+  const [signedIn, setSignedIn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const disclosure = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    request<{ loggedIn: boolean }>("/api/public/customer")
+      .then(({ loggedIn }) => { if (active) setSignedIn(loggedIn); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  async function authenticate(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const form = event ? new FormData(event.currentTarget) : null;
+    const command = form
+      ? { action: "login", email: form.get("email"), password: form.get("password") }
+      : { action: "logout" };
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request<{ loggedIn: boolean }>("/api/public/customer", json("POST", command));
+      setSignedIn(result.loggedIn);
+      if (disclosure.current) disclosure.current.open = false;
+      onChange();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "고객 인증에 실패했어요.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <details className="customer-access" ref={disclosure}>
+    <summary className="button secondary">{signedIn ? "데모 고객 연결됨" : "고객 로그인"}</summary>
+    <div className="customer-popover">
+      {signedIn ? <Button className="secondary" disabled={busy} onClick={() => void authenticate()}>로그아웃</Button>
+        : <form onSubmit={authenticate}>
+          <label>이메일<input name="email" type="email" autoComplete="email" required /></label>
+          <label>비밀번호<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
+          <Button className="primary" type="submit" disabled={busy}>로그인</Button>
+        </form>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </div>
+  </details>;
+}
+
+const toolLabels: Record<AgentTool, string> = {
+  search_policies: "정책 검색",
+  search_products: "상품 검색",
+  get_order_status: "주문 조회",
+  list_orders: "주문 내역",
+  track_shipment: "택배 추적",
+  check_return_eligibility: "반품 조건 확인",
+  submit_return_request: "반품 접수",
+  create_support_ticket: "상담 문의 접수",
+};
+
+function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = false }: {
+  shop: ShopId; publicMode: boolean; widgetKey?: string; catalogEnabled: boolean; resume?: boolean;
+}) {
+  const [input, setInput] = useState("");
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [waiting, setWaiting] = useState(resume);
+  const session = useRef<Session | null>(null);
+  const active = useRef(true);
+  const scrollbox = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLDivElement>(null);
+  const composerStart = useRef<number | null>(null);
+  const latest = turns.at(-1);
+  const lastAction = turns.findLast((turn) => turn.result?.action)?.id;
+
+  useEffect(() => {
+    active.current = true;
+    let mounted = true;
+    async function restore() {
+      try {
+        const stored = sessionStorage.getItem(sessionKey(widgetKey));
+        if (!stored) return;
+        const previous = JSON.parse(stored) as Session;
+        const data = await request<{ messages: SavedMessage[] }>("/api/public/sessions/" + previous.sessionId + "/messages",
+          { headers: { Authorization: "Bearer " + previous.sessionToken } });
+        if (!mounted) return;
+        session.current = previous;
+        setTurns(savedTurns(data.messages));
+      } catch {
+        if (mounted) sessionStorage.removeItem(sessionKey(widgetKey));
+      } finally {
+        if (mounted) setWaiting(false);
+      }
+    }
+    if (resume) void restore();
+    return () => { mounted = false; active.current = false; };
+  }, [resume, widgetKey]);
+
+  useEffect(() => {
+    if (turns.length) scrollbox.current?.scrollTo({ top: scrollbox.current.scrollHeight });
+  }, [turns]);
+
+  useLayoutEffect(() => {
+    const element = composer.current;
+    const start = composerStart.current;
+    if (!element || start === null || !turns.length) return;
+    composerStart.current = null;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const distance = start - element.getBoundingClientRect().top;
+    if (Math.abs(distance) < 1) return;
+    element.animate(
+      [{ transform: `translateY(${distance}px)` }, { transform: "translateY(0)" }],
+      { duration: 440, easing: "cubic-bezier(.2, .8, .2, 1)" },
+    );
+  }, [turns.length]);
+
+  async function ask(question: string, retryId?: string, decision?: ActionDecision) {
+    const cleaned = question.trim();
+    if (!cleaned || waiting) return;
+    if (!turns.length) composerStart.current = composer.current?.getBoundingClientRect().top ?? null;
+    const id = retryId ?? crypto.randomUUID();
+    const started = performance.now();
+    let latestStageStarted = started;
+    setInput("");
+    setWaiting(true);
+    const turn = { id, question: cleaned, decision };
+    setTurns((list) => retryId ? list.map((item) => item.id === id ? turn : item) : [...list, turn]);
+    try {
+      session.current ??= await request<Session>("/api/public/sessions", json("POST", { publicWidgetKey: widgetKey }));
+      if (!active.current) return;
+      if (resume) sessionStorage.setItem(sessionKey(widgetKey), JSON.stringify(session.current));
+      const options = json("POST", { sessionId: session.current.sessionId, clientRequestId: id,
+        ...(decision ? { action: decision } : { content: cleaned }) });
+      options.headers = { ...options.headers, Authorization: "Bearer " + session.current.sessionToken };
+      const result = await requestAnswer(options, (progress) => {
+        latestStageStarted = performance.now();
+        setTurns((list) => list.map((turn) => turn.id === id ? { ...turn, progress } : turn));
+      });
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        const now = performance.now();
+        const remaining = Math.max(minProgressMotionMs - (now - started), minStageDisplayMs - (now - latestStageStarted));
+        if (remaining > 0) await wait(remaining);
+        setTurns((list) => list.map((turn) => turn.id === id ? { ...turn, finishing: true } : turn));
+        await wait(searchExitMs);
+      }
+      setTurns((list) => list.map((turn) => turn.id === id ? { ...turn, result, finishing: false } : turn));
+    } catch (error) {
+      setTurns((list) => list.map((turn) => turn.id === id ? { ...turn, error: error instanceof Error ? error.message : "다시 시도해 주세요." } : turn));
+    } finally {
+      setWaiting(false);
+    }
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void ask(input);
+  }
+
+  return <div className="chat-layout">
+    <section className="chat-area" aria-label="고객 상담">
+      <div className="conversation" ref={scrollbox}>
+        {turns.length === 0 ? <div className="welcome">
+          <div className="chat-emblem" aria-hidden="true"><Layers3 size={25} /></div>
+          <h1>무엇을 도와드릴까요?</h1>
+          <div className="suggestions">
+            {suggestions.filter((item) => item.category !== "new" || catalogEnabled).map((item) => {
+              const Icon = shortcutIcons[item.category];
+              return <button className="suggestion" key={item.category} onClick={() => void ask(item.question)}>
+                <Icon size={15} />
+                <span>{item.title}</span>
+              </button>;
+            })}
+          </div>
+        </div> : <div className="turn-list" aria-live="polite">
+          {turns.map((turn) => {
+            return <article className="turn" key={turn.id}>
+              <p className="user-message">{turn.question}</p>
+              <div className="assistant-message">
+                <span className="assistant-mark" aria-label="ShopOps AI" role="img"><Layers3 size={11} strokeWidth={1.75} /></span>
+                <div className="assistant-content">
+                  {turn.result ? <div className="assistant-answer">
+                    <p className="assistant-copy">{turn.result.answer}</p>
+                    {turn.result.toolUsed && <span className="tool-used" aria-label="사용한 도구">{toolLabels[turn.result.toolUsed]}</span>}
+                    {turn.result.catalog && <ProductCards catalog={turn.result.catalog} />}
+                    {turn.result.orders && <OrderDetails result={turn.result.orders} />}
+                    {turn.result.action && <ActionDetails action={turn.result.action} active={turn.id === lastAction} disabled={waiting}
+                      choose={(value) => void ask(value)}
+                      decide={(value) => void ask(value.decision === "confirm" ? "접수 확인" : "접수 취소", undefined, value)} />}
+                    {turn.result.sources.length > 0 && <div className="reply-sources">
+                      {turn.result.sources.map((source) => <details key={source.documentId} className="inline-source">
+                        <summary>
+                          <FileText size={14} /> {source.title} <span>v{source.version}</span>
+                          <ChevronDown size={13} className="source-caret" aria-hidden="true" />
+                        </summary>
+                        <p>{source.excerpt}</p>
+                      </details>)}
+                    </div>}
+                  </div> : turn.error ? <>
+                    <p role="alert">{turn.error}</p>
+                    <Button className="secondary" disabled={waiting} onClick={() => void ask(turn.question, turn.id, turn.decision)}>다시 시도</Button>
+                  </> : <p className="pending" role="status" data-finishing={turn.finishing || undefined}>{progressLabels[turn.progress ?? "request"]}</p>}
+                </div>
+              </div>
+            </article>;
+          })}
+        </div>}
+      </div>
+      <div className="composer-wrap" ref={composer}>
+        <form className="composer" onSubmit={submit}>
+          <input aria-label="질문" placeholder="질문을 입력하세요" value={input} onChange={(event) => setInput(event.target.value)} maxLength={2000} />
+          <button className="send" aria-label="질문 보내기" disabled={waiting || !input.trim()}><ArrowUp size={18} /></button>
+        </form>
+      </div>
+    </section>
+    {!publicMode && <aside className="inspector" aria-label="답변 근거">
+      <div className="inspector-head"><BookOpen size={17} /><h2>답변 근거</h2></div>
+      {latest?.result?.sources.length ? latest.result.sources.map((source) => <div className="source-card" key={latest.id + source.documentId + source.version}>
+        <div><FileText size={16} /><strong>{source.title}</strong><span>v{source.version}</span></div><p>{source.excerpt}</p>
+      </div>) : latest?.result?.abstained && <p className="source-empty">일치하는 근거 없음</p>}
+    </aside>}
+  </div>;
+}
+
+const productCurrency = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
+
+const orderDate = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
+const scanDate = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" });
+
+function ActionDetails({ action, active, disabled, choose, decide }: {
+  action: AgentAction; active: boolean; disabled: boolean; choose: (value: string) => void; decide: (value: ActionDecision) => void;
+}) {
+  const [condition, setCondition] = useState(false);
+  if (action.kind === "closed") return null;
+  if (action.kind === "receipt") return <p className="action-receipt"><Check size={15} aria-hidden="true" /><span>접수번호 <strong>{action.id}</strong></span></p>;
+  if (action.kind === "return_reason") return active ? <div className="action-buttons">
+    {["단순 변심", "상품 파손", "오배송"].map((reason) => <Button className="secondary" key={reason} disabled={disabled} onClick={() => choose(reason)}>{reason}</Button>)}
+  </div> : null;
+  if (action.kind === "select_order") return <ul className="order-history" aria-label="주문 선택">
+    {action.items.map((order) => <li className="order-row" key={order.reference}>
+      <button type="button" className="order-choice" disabled={!active || disabled} onClick={() => choose(order.reference)}>
+        <span><strong>{order.name}</strong><small>{order.reference} · {orderDate.format(new Date(order.orderedAt))}</small></span>
+        <ChevronRight size={15} aria-hidden="true" />
+      </button>
+    </li>)}
+  </ul>;
+  const isReturn = action.action === "return";
+  const confirmLabel = isReturn ? "반품 접수" : "상담 문의 접수";
+  return <section className="shipment-card action-card" aria-label={confirmLabel}>
+    <div className="shipment-heading"><strong>{confirmLabel}</strong><span>{action.reason}</span></div>
+    {action.order && <p className="shipment-meta">{action.order.reference} · {action.order.name}{action.quantity && " · " + action.quantity + "개"}</p>}
+    {isReturn && action.fee !== null && <p className="shipment-meta">반품비 {productCurrency.format(action.fee)}</p>}
+    {active && <>
+      {isReturn ? <label className="action-check"><input type="checkbox" checked={condition} disabled={disabled}
+        onChange={(event) => setCondition(event.target.checked)} /> 미사용 상품이며 태그와 구성품이 모두 있어요.</label>
+        : <p className="shipment-meta">상담팀에 주문 정보와 이 대화가 전달됩니다.</p>}
+      <div className="action-buttons">
+        <Button className="primary" disabled={disabled || isReturn && !condition}
+          onClick={() => decide({ approvalId: action.id, decision: "confirm", itemConditionConfirmed: condition })}>{confirmLabel}</Button>
+        <Button className="secondary" disabled={disabled}
+          onClick={() => decide({ approvalId: action.id, decision: "cancel", itemConditionConfirmed: false })}>취소</Button>
+      </div>
+    </>}
+  </section>;
+}
+
+const returnStatus = {
+  eligible: "반품 가능",
+  not_delivered: "배송 완료 전",
+  too_late: "반품 기한 지남",
+  already_submitted: "반품 접수됨",
+  review: "상담원 확인 필요",
+};
+
+function OrderDetails({ result }: { result: OrderResult }) {
+  if (result.kind !== "shipment") {
+    if (result.items.length === 0) return null;
+    return <ul className="order-history" aria-label={result.kind === "history" ? "최근 주문 내역" : "주문별 반품 가능 여부"}>
+      {result.items.map((order) => <li className="order-row" key={order.reference}>
+        <div><strong>{order.name}</strong><span>{("eligibility" in order) ? returnStatus[order.eligibility] : order.status}</span></div>
+        <p>{order.reference} · {orderDate.format(new Date(order.orderedAt))} · {order.quantity}개
+          {order.total !== null && " · " + productCurrency.format(order.total)}</p>
+      </li>)}
+    </ul>;
+  }
+
+  return <section className="shipment-card" aria-label="택배 이동 내역">
+    <div className="shipment-heading"><strong>{result.order.name}</strong><span>{result.order.status}</span></div>
+    <p className="shipment-meta">{[result.order.reference, result.carrier, result.trackingNumber].filter(Boolean).join(" · ")}</p>
+    {result.events.length > 0 && <ol className="shipment-events">
+      {result.events.map((event, index) => <li key={event.occurredAt} data-latest={index === 0}>
+        <strong>{event.location} · {event.description}</strong>
+        <span>{scanDate.format(new Date(event.occurredAt))}</span>
+      </li>)}
+    </ol>}
+    <p className="shipment-meta">모의 택배 기록 · 마지막 스캔 기준</p>
+  </section>;
+}
+
+function ProductCards({ catalog }: { catalog: CatalogResult }) {
+  if (!catalog.products.length) return null;
+
+  return <ul className="product-grid" aria-label="추천 상품">
+    {catalog.products.map((product) => <li className="product-card" key={product.id}>
+      <Image className="product-image" src={product.image} alt={product.name} width={384} height={384} sizes="(max-width: 620px) 45vw, 210px" />
+      <div className="product-details">
+        <h3>{product.name}</h3>
+        <strong>{productCurrency.format(product.price)}</strong>
+        <p>{product.color}</p>
+        <ul className="product-options" aria-label="사이즈 및 재고">
+          {product.options.map((option) => <li key={option.size} data-available={option.available}>
+            {option.size}{!option.available && " 품절"}
+          </li>)}
+        </ul>
+      </div>
+    </li>)}
+  </ul>;
+}
+
+function Knowledge({ shop }: { shop: ShopId }) {
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [selected, setSelected] = useState<string>();
+  const [edited, setEdited] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const current = documents.find((document) => document.id === selected);
+
+  useEffect(() => {
+    let active = true;
+    request<{ documents: Document[] }>("/api/demo/knowledge?shop=" + shop).then(({ documents }) => {
+      if (!active) return;
+      setDocuments(documents);
+      setSelected(documents[0]?.id);
+      setEdited(documents[0]?.content ?? "");
+    }).catch((error: unknown) => {
+      if (active) setError(error instanceof Error ? error.message : "문서를 불러오지 못했어요.");
+    }).finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [shop]);
+
+  async function change(method: "PATCH" | "POST") {
+    if (!current || busy) return;
+    setBusy(true);
+    setNotice("");
+    setError("");
+    try {
+      const data = { shop, id: current.id, version: current.version };
+      const { document } = await request<{ document: Document }>("/api/demo/knowledge", json(method, method === "PATCH" ? { ...data, content: edited } : data));
+      setDocuments((list) => list.map((item) => item.id === document.id ? document : item));
+      setEdited(document.content);
+      setNotice(method === "PATCH" ? "저장됨 · 인덱싱 필요" : "인덱싱 완료");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "문서를 처리하지 못했어요.");
+    } finally { setBusy(false); }
+  }
+
+  const dirty = current?.content !== edited;
+  return <main className="knowledge enter">
+    <div className="knowledge-header"><h1>지식베이스</h1></div>
+    <div className="knowledge-grid">
+      <section className="document-list" aria-label="정책 문서">
+        <h2>정책 문서 <span>{documents.length}</span></h2>
+        {documents.map((doc) => <button key={doc.id} disabled={busy} aria-pressed={selected === doc.id} onClick={() => {
+          setSelected(doc.id); setEdited(doc.content); setNotice(""); setError("");
+        }}><FileText size={16} /><span><strong>{doc.title}</strong><small>{categories[doc.category]} · v{doc.version}</small></span><ChevronRight size={15} /></button>)}
+      </section>
+      <section className="editor" aria-label="문서 편집">
+        {current ? <>
+          <div className="editor-head"><h2>{current.title}</h2><span className={"status " + current.status}>{current.status === "ready" ? "검색 가능" : "인덱싱 필요"}</span></div>
+          <label htmlFor="policy">정책 본문</label>
+          <textarea id="policy" maxLength={10000} value={edited} disabled={busy} onChange={(event) => setEdited(event.target.value)} />
+          <div className="editor-actions">
+            <Button className="secondary" disabled={busy || dirty || current.status === "ready"} onClick={() => void change("POST")}><RotateCcw size={15} /> 다시 인덱싱</Button>
+            <Button className="primary" disabled={busy || !dirty || !edited.trim()} onClick={() => void change("PATCH")}><Check size={16} /> 변경사항 저장</Button>
+          </div>
+        </> : <p>{busy ? "불러오는 중" : "문서 없음"}</p>}
+        {notice && <p role="status" className="notice">{notice}</p>}
+        {error && <p role="alert" className="error">{error}</p>}
+      </section>
+    </div>
+  </main>;
+}

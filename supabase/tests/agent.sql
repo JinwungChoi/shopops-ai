@@ -1,0 +1,11 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select extensions.plan(6);
+select extensions.ok((select relrowsecurity from pg_class where oid = 'public.mock_orders'::regclass), '모의 주문 RLS 활성화');
+select extensions.ok(not has_table_privilege('anon','public.mock_orders','SELECT'), '익명 주문 직접 읽기 차단');
+select extensions.ok(not has_table_privilege('authenticated','public.mock_orders','SELECT'), '고객 주문 직접 읽기 차단');
+select extensions.ok(not has_column_privilege('authenticated','public.chat_sessions','customer_user_id','SELECT'), '고객 세션 바인딩 식별자는 서버 전용');
+select extensions.ok(not has_table_privilege('authenticated','public.mock_shipment_events','SELECT'), '택배 스캔 직접 읽기 차단');
+select extensions.ok((select relrowsecurity from pg_class where oid = 'public.mock_shipment_events'::regclass), '택배 스캔 RLS 활성화');
+select * from extensions.finish();
+rollback;
