@@ -39,6 +39,11 @@ for (const item of style) {
   const { data, error } = await client.from("mock_orders").update({ product_id: item.id })
     .eq("tenant_id", tenantId).eq("product_name", item.name).is("product_id", null).select("id");
   if (error) throw Error("주문과 상품을 연결하지 못했습니다.");
+  // 사이즈 기록이 없는 합성 주문은 M(없으면 첫 사이즈)으로 주문한 것으로 둔다. 교환 안내에 현재 사이즈가 필요하다.
+  const orderedSize = item.options.some((option) => option.size === "M") ? "M" : item.options[0].size;
+  const sized = await client.from("mock_orders").update({ option_size: orderedSize })
+    .eq("tenant_id", tenantId).eq("product_id", item.id).is("option_size", null);
+  if (sized.error) throw Error("주문 사이즈를 기록하지 못했습니다.");
   linked += data.length;
 }
 console.log(`Style Shop · 상품 ${style.length}개 · 옵션 ${style.reduce((n, item) => n + item.options.length, 0)}개 · 연결한 기존 주문 ${linked}건`);

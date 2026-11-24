@@ -24,7 +24,7 @@ const changeDetail = z.object({ addressId: z.uuid().optional(), label: z.string(
   size: z.string().optional(), fromSize: z.string().nullable().optional() }).strict();
 const changeResponse = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending"), id: z.uuid(), expiresAt: z.iso.datetime({ offset: true }), detail: changeDetail }),
-  z.object({ status: z.literal("size_missing"), sizes: z.array(z.string()) }),
+  z.object({ status: z.literal("size_missing"), sizes: z.array(z.string()), fromSize: z.string().nullable().optional() }),
   z.object({ status: z.enum(["missing", "invalid", "not_delivered", "too_late", "review", "out_of_stock",
     "shipped", "already_canceled", "address_locked", "address_missing", "same_address", "already_requested", "same_size"]) }),
 ]);
@@ -120,7 +120,10 @@ async function prepareChange({ scope, checkpoint, candidate, report }: GraphStat
   }
   if (draft.status === "size_missing" && !target.size) {
     return { checkpoint: { ...checkpoint, waiting: "order" }, result: message(
-      josa(candidate.summary.name, "을", "를") + " 어떤 사이즈로 교환할까요? 가능한 사이즈: " + bySize(draft.sizes).join(", "),
+      (draft.fromSize ? josa(candidate.summary.name, "은", "는") + " " + draft.fromSize + " 사이즈로 주문하셨어요. "
+        : candidate.summary.name + " 주문 사이즈 기록이 없어요. ")
+      + (draft.sizes.length ? "교환 가능한 사이즈: " + bySize(draft.sizes).join(", ") + ". 어떤 사이즈로 바꿀까요?"
+        : "지금 교환할 수 있는 다른 사이즈 재고가 없어요."),
       { toolUsed: "prepare_order_change" }) };
   }
   if (draft.status !== "pending") {

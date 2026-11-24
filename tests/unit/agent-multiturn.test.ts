@@ -73,7 +73,7 @@ const fakeClient = {
     if (name === "list_mock_addresses") return { data: savedAddresses, error: null };
     if (name === "prepare_order_change") {
       if (args.p_kind === "address" && !args.p_address) return { data: { status: "address_missing" }, error: null };
-      if (args.p_kind === "exchange" && !args.p_size) return { data: { status: "size_missing", sizes: ["L", "M", "S"] }, error: null };
+      if (args.p_kind === "exchange" && !args.p_size) return { data: { status: "size_missing", sizes: ["L", "S"], fromSize: "M" }, error: null };
       const detail = args.p_kind === "address" ? { addressId: args.p_address, label: "회사", summary: "서울 중구 (합성 주소)" }
         : args.p_kind === "exchange" ? { size: args.p_size, fromSize: "M" } : {};
       return { data: { status: "pending", id: changeId, expiresAt: "2026-11-25T12:10:00+00:00", detail }, error: null };
@@ -429,9 +429,9 @@ describe("주문 취소·배송지 변경·교환", () => {
     const result = await chat("STY-1001 교환하고 싶어요", [change("exchange"), finish]);
     expect(rpcCalls.map(({ name }) => name)).toEqual(["prepare_order_change"]);
     expect(result.result.action).toBeUndefined();
-    expect(result.result.answer).toContain("어떤 사이즈로 교환");
-    // 고객 A STY-1001 상품명은 "블랙 트윌 재킷": 받침이 있어 "을", 사이즈는 S→M→L 순서.
-    expect(result.result.answer).toContain("블랙 트윌 재킷을 어떤 사이즈로 교환할까요? 가능한 사이즈: S, M, L");
+    expect(result.result.answer).toContain("어떤 사이즈로 바꿀까요");
+    // 현재 주문 사이즈를 먼저 말하고, 그 사이즈를 뺀 교환 가능 사이즈를 S→L 순서로 안내한다.
+    expect(result.result.answer).toBe("블랙 트윌 재킷은 M 사이즈로 주문하셨어요. 교환 가능한 사이즈: S, L. 어떤 사이즈로 바꿀까요?");
     expect(result.checkpoint).toMatchObject({ intent: "exchange", waiting: "order" });
   });
 });

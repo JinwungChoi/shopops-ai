@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(26);
+select extensions.plan(27);
 
 -- 모든 데이터는 트랜잭션 안의 합성 값이며 마지막에 롤백한다.
 insert into public.tenants (name, slug, public_widget_key)
@@ -74,6 +74,7 @@ select extensions.is((select address_id from public.mock_orders where id = '4200
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000005'::uuid,'exchange',null,'L')->>'status','too_late','수령 후 5일이 지나면 교환 불가') from oc;
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000006'::uuid,'exchange',null,null)->>'status','size_missing','사이즈 기록이 없는 주문도 새 사이즈 미지정이면 사이즈를 묻는다') from oc;
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,null)->'sizes','["L"]'::jsonb,'사이즈 목록은 재고가 있는 다른 사이즈만') from oc;
+select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,null)->>'fromSize','M','현재 주문 사이즈를 함께 돌려준다') from oc;
 select extensions.is(public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,'XL')->>'status','out_of_stock','품절 사이즈로 교환 불가') from oc;
 create temporary table exchange_draft as
   select (public.prepare_order_change(tenant,session_id,customer,'42000000-0000-4000-8000-000000000004'::uuid,'exchange',null,'L')->>'id')::uuid as approval from oc;
