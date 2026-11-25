@@ -4,6 +4,8 @@
 
 > **한 줄 설계 원칙:** 고객이 무엇을 원하는지는 모델이 판단하고, 그 일을 해도 되는지와 실제 실행은 서버와 DB가 결정한다. 돈이나 주문 상태가 바뀌는 일은 고객이 확인 버튼을 눌러야만 실행된다.
 
+**라이브 데모: https://shopops-ai.vercel.app** — 상단 **[고객 A] [고객 B]** 버튼으로 합성 고객을 골라 바로 대화할 수 있습니다. 하루 답변 300회 제한이 있고, 데모 데이터는 매일 04:00(KST)에 초기화됩니다.
+
 ![데모: 정책 문의 → 신상 재킷 → 장바구니 → 주문 확인 → 사이즈 교환](docs/demo.gif)
 
 실제 모델(OpenAI)과 로컬 Supabase로 녹화했습니다(1.6배속). 원본 영상: [demo/shopops-agent-demo.mp4](demo/shopops-agent-demo.mp4)
@@ -62,6 +64,15 @@ npm run test:e2e          # 키 없는 화면 데모
 supabase test db          # pgTAP
 ```
 
+## 공개 데모 운영
+
+| 장치 | 내용 |
+| --- | --- |
+| 비용 한도 | 하루 답변 총량 제한(`take_daily_budget`, KST 기준) + 세션·업체·전체 분당 제한 + IP별 분당 제한 |
+| 기능 차단 | `SHOP_OPS_PUBLIC_DEMO=1`이면 관리자 가입·로그인·업체 API를 막고 첫 화면을 고객 채팅으로 보냄 |
+| 데이터 초기화 | 시드 직후 스냅샷을 저장하고, pg_cron이 매일 04:00 KST에 새 대화·주문·장바구니를 지우고 상태·재고를 복구. 주문 시각도 지금 기준으로 옮겨 반품·교환 기한 시연이 매일 같은 상태로 유지됨 |
+| 배포 | Vercel(Next.js) + Supabase 클라우드(서울 리전). 비밀값은 환경변수로만 관리 |
+
 ## 기술 스택
 
 Next.js 16 (App Router) · TypeScript strict · Supabase (Auth, Postgres 17, RLS, pgvector) · LangChain.js · LangGraph · OpenAI · LangSmith · Zod · Vitest · Playwright · pgTAP
@@ -80,7 +91,6 @@ npm run dev   # http://localhost:3000
 ## 로드맵
 
 - **운영 지표:** 답변 피드백(도움 됨/안 됨)과 업체별 토큰·추정 비용 대시보드 (테이블 설계 완료)
-- **공개 데모 배포:** 일일 비용 한도, IP별 요청 제한, 데모 데이터 정기 초기화
 - **Phase 3:** 송장 OCR·상품 파손 사진 Vision, 문서 처리 Worker와 큐, 모니터링
 - **검색 고도화:** Hybrid Search·Rerank를 독립 평가셋으로 비교
 
