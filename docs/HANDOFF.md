@@ -148,3 +148,14 @@ Claude Code 시작 문구는 [후속 작업 프롬프트](CLAUDE_CODE_PROMPT.md)
 
 - 채팅 상단 [비로그인][고객 A][고객 B]. 브라우저는 `{action:"demo", customer:"a"|"b"}`만 보내고 데모 계정 비밀번호는 서버(`SHOP_OPS_DEMO_PASSWORD`, 기본값은 로컬 시드 비밀번호)에만 둔다. 이 경로로는 A·B 외 계정에 로그인할 수 없다.
 - A·B가 아닌 고객으로 로그인돼 있으면 어느 버튼도 눌리지 않은 상태로 보이고, 비로그인을 누르면 로그아웃한다. 공개 배포 시에는 누구나 A·B 주문을 바꿀 수 있으므로 시드 초기화 경로와 사용량 한도가 먼저 필요하다.
+
+## 공개 데모 배포 (2026-11-25)
+
+- 주소: https://shopops-ai.vercel.app (Vercel 프로젝트 `shopops-ai`, 개인 scope). DB: Supabase 클라우드 `shopops-ai`(ref `lnfanpsggxmgrelivlhh`, ap-northeast-2).
+- 접속 정보는 로컬 `.env.cloud`(gitignore)에만 있다. 클라우드 DB 비밀번호는 `.env.local`의 `SUPABASE_DB_PASSWORD`. 값은 출력하지 않는다.
+- Vercel 운영 환경변수: `SHOP_OPS_BACKEND=supabase`, `SHOP_OPS_LIVE_MODEL=1`, `SHOP_OPS_FAKE_EMBEDDINGS=0`, `SHOP_OPS_DEMO=1`, `APP_BASE_URL`, `SHOP_OPS_PUBLIC_DEMO=1`, `SHOP_OPS_DAILY_ANSWER_LIMIT=300`, `OPENAI_*`, `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SECRET_KEY`(legacy service_role JWT: CLI가 새 secret 키를 가려서 출력), `SHOP_OPS_DEMO_PASSWORD`(클라우드 전용 무작위 값).
+- 마이그레이션: `supabase db push`(프로젝트 link 상태). 시드: `SHOP_OPS_SEED_CLOUD_HOST=lnfanpsggxmgrelivlhh.supabase.co`를 정확히 지정해야 클라우드를 허용한다. 순서는 `seed-showcase` → `seed-mock-orders` → `seed-catalog` → `demo-snapshot`, 각각 `node --env-file=.env.local --env-file=.env.cloud scripts/<이름>.mjs`.
+- 시드를 다시 넣으면 반드시 `demo-snapshot`을 다시 실행한다. 매일 04:00 KST pg_cron(`shopops-demo-reset`)이 스냅샷 상태로 되돌린다.
+- 배포: `vercel deploy --prod`. `.vercelignore`가 `.env*`를 업로드에서 뺀다. `next.config.ts`는 Vercel에서 기본 `.next`를 쓴다.
+- 남은 운영 작업: Supabase 대시보드에서 이메일 가입 끄기(공개 키로 Auth 가입 API를 직접 부르는 경로 차단), OpenAI 프로젝트 월 한도 설정, 배포 전용 OpenAI 키로 교체.
+
