@@ -4,6 +4,10 @@ import { readFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+// 기본은 로컬 Supabase만 허용한다. 배포용 클라우드는 SHOP_OPS_SEED_CLOUD_HOST에 그 호스트를 정확히 적었을 때만 허용한다.
+const isLocal = (url) => url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+const isApprovedCloud = (url) => url.protocol === "https:" && url.hostname === process.env.SHOP_OPS_SEED_CLOUD_HOST;
+
 const product = z.object({
   id: z.string().regex(/^[a-z0-9-]{3,60}$/), name: z.string().min(1).max(100),
   category: z.enum(["jacket", "shirt", "trousers", "knit", "coat", "accessory"]), color: z.string().regex(/^[a-z]{3,20}$/),
@@ -14,7 +18,7 @@ const product = z.object({
 
 const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://invalid");
 const secret = process.env.SUPABASE_SECRET_KEY;
-if (url.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(url.hostname) || !secret) {
+if (!(isLocal(url) || isApprovedCloud(url)) || !secret) {
   throw Error("격리된 로컬 Supabase 설정이 필요합니다.");
 }
 const client = createClient(url.origin, secret, { auth: { persistSession: false, autoRefreshToken: false } });

@@ -1,6 +1,10 @@
 import { randomInt } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
+// 기본은 로컬 Supabase만 허용한다. 배포용 클라우드는 SHOP_OPS_SEED_CLOUD_HOST에 그 호스트를 정확히 적었을 때만 허용한다.
+const isLocal = (url) => url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+const isApprovedCloud = (url) => url.protocol === "https:" && url.hostname === process.env.SHOP_OPS_SEED_CLOUD_HOST;
+
 const day = 86_400_000;
 const additionalOrders = [
   ["STY-1003", "크림 코튼 셔츠", "delivered", 4, 2, 39000],
@@ -25,7 +29,7 @@ const additionalOrders = [
 async function seed() {
   const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://invalid");
   const key = process.env.SUPABASE_SECRET_KEY;
-  if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname) || !key) throw Error("로컬 Supabase만 지원합니다.");
+  if (!(isLocal(url) || isApprovedCloud(url)) || !key) throw Error("로컬 Supabase만 지원합니다.");
   const client = createClient(url.origin, key, { auth: { autoRefreshToken: false, persistSession: false } });
   const tenant = await client.from("tenants").select("id").eq("public_widget_key", "202dbac4609c4aaa9a7cd4ea0aa604a5")
     .eq("name", "Style Shop").eq("is_active", true).maybeSingle();

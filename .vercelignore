@@ -1,0 +1,10 @@
+# 배포 업로드에서 제외: 로컬 비밀값·테스트 산출물·이력서 메모
+.env*
+!.env.example
+.vercel
+.playwright-mcp
+test-results
+playwright-report
+.shopops
+docs/PORTFOLIO_SUMMARY.md
+*.tmp.mjs
