@@ -48,6 +48,8 @@ const scenarios = [
   ["C02 가격+카테고리", null, ["5만원 이하 셔츠 있어요?"]],
   ["C03 특정재고", null, ["블랙 트윌 재킷 L 사이즈 있어요?"]],
   ["C04 없는품목", null, ["모자도 팔아요?"]],
+  ["C05 구매의사", null, ["신상 재킷 보여줘", "재킷m사이즈 주문가능?", "주문되냐고", "구매하고싶다니까"]],
+  ["C06 바로구매", A, ["블랙 트윌 재킷 M 사이즈로 하나 주문해줘"]],
   ["O01 비로그인주문", null, ["내 주문 내역 보여줘"]],
   ["O02 주문내역", A, ["내 주문 내역 보여줘"]],
   ["O03 배송추적", A, ["내 재킷 지금 어디쯤 왔어?"]],
@@ -67,6 +69,21 @@ const scenarios = [
   ["O17 빠진이유-번호없이", A, ["반품 가능한 주문 보여줘", "블랙 트윌 재킷은 왜 안 돼?"]],
   ["O18 미수령", A, ["STY-1007 배송 완료라는데 못 받았어요"]],
   ["O19 반품철회", A, ["반품 신청한 거 취소할 수 있어요?"]],
+  ["S01 담기-주문", "temp", ["신상 재킷 보여줘", "블랙 트윌 재킷 M 사이즈 장바구니에 담아줘", "장바구니 보여줘", "이대로 주문할게요", "{confirm}", "방금 주문한 거 보여줘"]],
+  ["S02 바로구매", "temp", ["그레이 크루넥 스웨트셔츠 L 하나 사줘", "{confirm}"]],
+  ["S03 사이즈미정", "temp", ["블랙 울 코트 사고 싶어요"]],
+  ["S04 품절담기", "temp", ["블랙 트윌 재킷 L 담아줘"]],
+  ["S05 수량변경-빼기", "temp", ["아이보리 옥스퍼드 셔츠 M 두 개 담아줘", "하나만 할게요", "그냥 빼줘", "장바구니 보여줘"]],
+  ["S06 상품상세", null, ["네이비 초어 재킷 소재랑 세탁 방법 알려줘"]],
+  ["S07 비로그인담기", null, ["블랙 트윌 재킷 M 담아줘"]],
+  ["S08 주문취소카드", "temp", ["블랙 울 머플러 하나 주문할게", "{cancel}", "장바구니 보여줘"]],
+  ["M01 출고전취소", "temp", ["블랙 울 머플러 주문 취소해줘", "{confirm}", "주문 내역 보여줘"]],
+  ["M02 배송지변경", "temp", ["머플러 주문 배송지 바꾸고 싶어요", "회사 배송지로 바꿔줘", "{confirm}"]],
+  ["M03 사이즈교환", "temp", ["네이비 초어 재킷 L로 교환하고 싶어요", "{confirm}"]],
+  ["M04 교환사이즈미정", "temp", ["초어 재킷 사이즈 교환할래요", "XL로요"]],
+  ["M05 배송중취소", A, ["STY-1001 주문 취소해줘"]],
+  ["M06 변경닫기", "temp", ["머플러 주문 취소할래", "{cancel}", "주문 내역 보여줘"]],
+  ["M07 이전주문혼동", "temp", ["머플러 주문 배송지 바꾸고 싶어요", "회사 배송지로 바꿔줘", "{confirm}", "초어 재킷 L로 교환하고 싶어요"]],
   ["X01 반품접수-확인", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "방금 반품한 거 다시 반품해줘"]],
   ["X02 반품접수-취소", "temp", ["검증 셔츠 반품할래요. 단순 변심", "{cancel}"]],
 ];
@@ -81,6 +98,23 @@ async function tempCustomer() {
     status: "delivered", quantity: 1, total_amount: 39000 }).select("id").single();
   await db.from("mock_shipment_events").insert({ tenant_id: tenant.data.id, order_id: order.data.id,
     occurred_at: new Date(Date.now() - 86_400_000).toISOString(), location: "검증 배송점", description: "배달 완료" });
+  // 주문 변경 시나리오용: 출고 전 주문(취소·배송지), 사이즈가 기록된 배송 완료 주문(교환), 합성 배송지 2곳.
+  const now = Date.now();
+  const extra = await db.from("mock_orders").insert([
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, order_reference: "STY-" + (Number(reference.slice(4)) + 1),
+      product_name: "블랙 울 머플러", ordered_at: new Date(now - 120_000).toISOString(), status: "preparing", quantity: 1,
+      total_amount: 35000, product_id: "black-wool-muffler", option_size: "FREE" },
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, order_reference: "STY-" + (Number(reference.slice(4)) + 2),
+      product_name: "네이비 초어 재킷", ordered_at: new Date(now - 4 * 86_400_000).toISOString(), status: "delivered", quantity: 1,
+      total_amount: 89000, product_id: "navy-chore-jacket", option_size: "M" },
+  ]).select("id,product_name");
+  const chore = extra.data.find((row) => row.product_name === "네이비 초어 재킷");
+  await db.from("mock_shipment_events").insert({ tenant_id: tenant.data.id, order_id: chore.id,
+    occurred_at: new Date(now - 2 * 86_400_000).toISOString(), location: "검증 배송점", description: "배달 완료" });
+  await db.from("mock_addresses").insert([
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, label: "집", summary: "서울 마포구 (합성 주소)", is_default: true },
+    { tenant_id: tenant.data.id, customer_user_id: user.data.user.id, label: "회사", summary: "서울 중구 (합성 주소)", is_default: false },
+  ]);
   return { email, id: user.data.user.id, reference, orderId: order.data.id };
 }
 
@@ -115,14 +149,24 @@ async function run([id, who, turns]) {
         sources: answer?.sources?.map((x) => x.title),
         orders: answer?.orders && (answer.orders.kind === "shipment" ? { kind: "shipment", ref: answer.orders.order.reference, last: answer.orders.events?.[0]?.location }
           : { kind: answer.orders.kind, items: answer.orders.items.map((i) => i.reference + (i.eligibility ? ":" + i.eligibility : "")) }),
-        catalog: answer?.catalog?.products?.map((p) => p.name + (p.sizes ? "" : "")),
+        catalog: answer?.catalog?.products?.map((p) => p.name),
+        cart: answer?.cart && { lines: answer.cart.lines.map((l) => `${l.productId}:${l.size}x${l.quantity}`), total: answer.cart.total },
         action: answer?.action && { kind: answer.action.kind, action: answer.action.action, reason: answer.action.reason, fee: answer.action.fee,
-          order: answer.action.order?.reference, items: answer.action.items?.map((i) => i.reference) } });
+          order: answer.action.order?.reference, items: answer.action.items?.map((i) => i.reference),
+          total: answer.action.cart?.total ?? answer.action.total, orders: answer.action.orders } });
     }
     if (temp) {
       const saved = await db.from("mock_return_requests").select("id").eq("order_id", temp.orderId);
       const tickets = await db.from("support_tickets").select("reason").eq("tenant_id", (await db.from("tenants").select("id").eq("public_widget_key", widget).single()).data.id).eq("order_reference", temp.reference);
-      record.db = { returns: saved.data?.length, tickets: tickets.data?.length, reference: temp.reference };
+      const checkouts = await db.from("mock_checkouts").select("id,total").eq("customer_user_id", temp.id);
+      const placed = await db.from("mock_orders").select("order_reference,product_name,option_size,quantity,status").eq("customer_user_id", temp.id).not("checkout_id", "is", null);
+      const cart = await db.from("mock_cart_items").select("product_id,size,quantity").eq("customer_user_id", temp.id);
+      const statuses = await db.from("mock_orders").select("product_name,status,option_size,address_id").eq("customer_user_id", temp.id).is("checkout_id", null);
+      const changes = await db.from("mock_order_changes").select("kind,detail").in("order_id",
+        (await db.from("mock_orders").select("id").eq("customer_user_id", temp.id)).data.map((row) => row.id));
+      record.db = { returns: saved.data?.length, tickets: tickets.data?.length, reference: temp.reference,
+        orders: statuses.data?.map((row) => `${row.product_name}:${row.status}${row.address_id ? ":addr" : ""}`), changes: changes.data,
+        checkouts: checkouts.data, placed: placed.data, cart: cart.data };
     }
   } catch (e) {
     record.fatal = String(e);

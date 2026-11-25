@@ -6,7 +6,19 @@ import { z } from "zod";
 const shops = [
   { key: "style", name: "Style Shop", widget: "202dbac4609c4aaa9a7cd4ea0aa604a5" },
 ];
-const model = "text-embedding-3-small";
+// SHOP_OPS_FAKE_EMBEDDINGS=1이면 API 없이 앱의 로컬 bigram 임베딩(src/server/embeddings.ts와 같은 계산)으로 인덱싱한다.
+const fake = process.env.SHOP_OPS_FAKE_EMBEDDINGS === "1";
+const model = fake ? "shopops-demo-bigram-v1" : "text-embedding-3-small";
+function fingerprint(text) {
+  const features = new Array(1536).fill(0);
+  const clean = text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  for (let index = 0; index < clean.length - 1; index++) {
+    const position = (clean.charCodeAt(index) * 31 + clean.charCodeAt(index + 1)) % features.length;
+    features[position] += 1;
+  }
+  if (!features.some(Boolean)) features[0] = 1;
+  return features;
+}
 const policy = z.object({
   id: z.string().min(1), title: z.string().min(1).max(200),
   question: z.string().min(1).max(400), answer: z.string().min(1).max(950),
@@ -30,9 +42,13 @@ async function seed() {
     if (tenant.error || tenant.data?.name !== shop.name || !tenant.data?.slug.startsWith("live-" + shop.key + "-")) {
       throw Error(shop.name + "의 로컬 시연 업체를 확인하지 못했습니다.");
     }
-    const current = await client.from("knowledge_documents").select("id,title,content,version,index_status")
+    const current = await client.from("knowledge_documents").select("id,title,content,version,index_status,active_version")
       .eq("tenant_id", tenant.data.id).is("deleted_at", null);
     if (current.error) throw Error(shop.name + "의 정책 목록 조회에 실패했습니다.");
+    const chunks = await client.from("knowledge_chunks").select("document_id,document_version,embedding_model").eq("tenant_id", tenant.data.id);
+    if (chunks.error) throw Error(shop.name + "의 인덱스 조회에 실패했습니다.");
+    const activeModel = new Map(current.data.map((row) => [row.id,
+      chunks.data.find((chunk) => chunk.document_id === row.id && chunk.document_version === row.active_version)?.embedding_model]));
     const pending = [];
     const names = new Set();
     for (const document of fixtures[shop.key]) {
@@ -42,18 +58,24 @@ async function seed() {
       if (matched.length > 1) throw Error(document.title + " 이름의 정책이 중복됐습니다.");
       const previous = matched[0];
       const content = "Q: " + document.question + "\nA: " + document.answer;
-      if (previous?.content === content && previous.index_status === "ready") continue;
-      pending.push({ title: document.title, content, previous });
+      const reindex = previous?.index_status === "ready" && activeModel.get(previous.id) !== model;
+      if (previous?.content === content && previous.index_status === "ready" && !reindex) continue;
+      pending.push({ title: document.title, content, previous, reindex });
     }
     plan.push({ shop, tenantId: tenant.data.id, pending });
   }
 
   const work = plan.flatMap(({ tenantId, pending }) => pending.map((item) => ({ tenantId, ...item })));
   if (work.length) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw Error("시연 정책 인덱싱용 OpenAI 키 설정이 필요합니다.");
-    const adapter = new OpenAIEmbeddings({ apiKey, model, dimensions: 1536, timeout: 18_000, maxRetries: 0 });
-    const vectors = await adapter.embedDocuments(work.map((item) => item.content));
+    let vectors;
+    if (fake) {
+      vectors = work.map((item) => fingerprint(item.content));
+    } else {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) throw Error("시연 정책 인덱싱용 OpenAI 키 설정이 필요합니다.");
+      const adapter = new OpenAIEmbeddings({ apiKey, model, dimensions: 1536, timeout: 18_000, maxRetries: 0 });
+      vectors = await adapter.embedDocuments(work.map((item) => item.content));
+    }
     if (vectors.length !== work.length || vectors.some((entry) => entry.length !== 1536 || !entry.every(Number.isFinite))) {
       throw Error("임베딩 결과의 형식이 올바르지 않습니다.");
     }
@@ -66,7 +88,7 @@ async function seed() {
         }).select("id").single();
         if (inserted.error) throw Error(item.title + " 등록에 실패했습니다.");
         id = inserted.data.id;
-      } else if (item.previous.content !== item.content) {
+      } else if (item.previous.content !== item.content || item.reindex) {
         const updated = await client.from("knowledge_documents").update({
           content: item.content, version: version + 1, active_version: null, index_status: "pending", error_code: null, updated_at: new Date().toISOString(),
         }).eq("tenant_id", item.tenantId).eq("id", id).eq("version", version)

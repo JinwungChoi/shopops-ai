@@ -56,7 +56,7 @@ async function validSession(id: string, token: string) {
 
 export async function history(sessionId: string, token: string, offset: number) {
   const session = await validSession(sessionId, token);
-  const { data, error } = await session.client.from("chat_messages").select("id,role,content,source_refs,abstained,created_at,reply_to_id,client_request_id,catalog_response,tool_name,order_response,agent_response,agent_input")
+  const { data, error } = await session.client.from("chat_messages").select("id,role,content,source_refs,abstained,created_at,reply_to_id,client_request_id,catalog_response,tool_name,order_response,agent_response,agent_input,cart_response")
     .eq("tenant_id", session.tenantId).eq("session_id", session.sessionId)
     .order("created_at").order("id").range(offset, offset + 49);
   if (error) throw new DemoError(502, "대화 내역을 읽지 못했어요.");
@@ -80,12 +80,13 @@ export async function answerMessage(sessionId: string, token: string, requestId:
       ? prior.agent_input?.approvalId !== action.approvalId || prior.agent_input?.decision !== action.decision ||
         prior.agent_input?.itemConditionConfirmed !== action.itemConditionConfirmed
       : prior.agent_input !== null)) throw new DemoError(409, "요청 내용이 이전과 달라요.");
-    const { data: answer } = await client.from("chat_messages").select("id,content,source_refs,abstained,catalog_response,tool_name,order_response,agent_response")
+    const { data: answer } = await client.from("chat_messages").select("id,content,source_refs,abstained,catalog_response,tool_name,order_response,agent_response,cart_response")
       .eq("tenant_id", tenantId).eq("session_id", authorized).eq("reply_to_id", prior.id).maybeSingle();
     if (!answer) throw new DemoError(409, "이전 요청을 처리하고 있어요.");
     return { messageId: answer.id, answer: answer.content, sources: answer.source_refs, abstained: answer.abstained,
       ...(answer.catalog_response && { catalog: answer.catalog_response }), ...(answer.tool_name && { toolUsed: answer.tool_name }),
-      ...(answer.order_response && { orders: answer.order_response }), ...(answer.agent_response && { action: answer.agent_response }) };
+      ...(answer.order_response && { orders: answer.order_response }), ...(answer.agent_response && { action: answer.agent_response }),
+      ...(answer.cart_response && { cart: answer.cart_response }) };
   }
   if (insertError) throw new DemoError(502, "질문을 저장하지 못했어요.");
 
@@ -107,13 +108,18 @@ export async function answerMessage(sessionId: string, token: string, requestId:
       const recent = () => client.from("chat_messages").select("catalog_filters,agent_state,order_response")
         .eq("tenant_id", tenantId).eq("session_id", authorized).eq("role", "assistant")
         .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1);
-      const [catalog, workflow, shipment, displayed] = await Promise.all([
+      const [catalog, workflow, shipment, displayed, lately] = await Promise.all([
         recent().not("catalog_filters", "is", null).maybeSingle(),
         recent().not("agent_state", "is", null).maybeSingle(),
         recent().eq("order_response->>kind", "shipment").maybeSingle(),
         recent().not("order_response", "is", null).maybeSingle(),
+        // 직전 대화 몇 줄만 모델에 넘긴다. 사이즈만 답하는 후속 질문이 앞의 요청을 이어받게 하기 위해서다.
+        client.from("chat_messages").select("role,content").eq("tenant_id", tenantId).eq("session_id", authorized)
+          .neq("id", message.id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(4),
       ]);
-      if (catalog.error || workflow.error || shipment.error || displayed.error) throw new DemoError(502, "이전 상담 내용을 확인하지 못했어요.");
+      if (catalog.error || workflow.error || shipment.error || displayed.error || lately.error) throw new DemoError(502, "이전 상담 내용을 확인하지 못했어요.");
+      const recentTurns = lately.data.reverse().map((row) => ({
+        role: row.role === "user" ? "customer" as const : "assistant" as const, text: String(row.content).slice(0, 300) }));
       const previousFilters = readCatalogFilters(catalog.data?.catalog_filters);
       const prior = agentStateSchema.safeParse(workflow.data?.agent_state).data;
       const lastOrder = presentedOrders(shipment.data?.order_response)[0]?.reference;
@@ -129,8 +135,8 @@ export async function answerMessage(sessionId: string, token: string, requestId:
         });
       };
       if (!action && !intent && live) {
-        const inquiry = await answerInquiry({ tenantId, sessionId: authorized, customerId, question, filters: previousFilters,
-          prior, previousOrders: presentedOrders(displayed.data?.order_response), lastOrder, report, policyAnswer });
+        const inquiry = await answerInquiry({ tenantId, sessionId: authorized, customerId, question, requestId, filters: previousFilters,
+          prior, previousOrders: presentedOrders(displayed.data?.order_response), lastOrder, recentTurns, report, policyAnswer });
         result = inquiry.result;
         workflowPolicy = inquiry.supplementaryPolicy;
         filters = inquiry.filters;
@@ -177,7 +183,7 @@ export async function answerMessage(sessionId: string, token: string, requestId:
       tenant_id: tenantId, session_id: authorized, role: "assistant", content: result.answer,
       reply_to_id: message.id, source_refs: result.sources, abstained: result.abstained,
       catalog_filters: filters ?? null, catalog_response: result.catalog ?? null, tool_name: toolUsed ?? null, order_response: result.orders ?? null,
-      agent_response: result.action ?? null, agent_state: checkpoint ?? null,
+      agent_response: result.action ?? null, agent_state: checkpoint ?? null, cart_response: result.cart ?? null,
     }).select("id").single();
     if (saveError) throw new DemoError(502, "답변을 저장하지 못했어요.");
     return { ...result, messageId: saved.id, ...(toolUsed && { toolUsed }) };

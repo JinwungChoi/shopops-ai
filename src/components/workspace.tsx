@@ -4,10 +4,10 @@ import Image from "next/image";
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import {
   ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, FileText,
-  Layers3, MessageSquare, Package, Plus, RotateCcw, Undo2,
+  Layers3, MessageSquare, Package, Plus, RotateCcw, Shirt, Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { categories, shops, showcaseShop, suggestions, type ActionDecision, type AgentAction, type AgentTool, type Answer, type CatalogResult, type Document, type OrderResult, type ShopId } from "@/lib/demo";
+import { categories, shops, showcaseShop, suggestions, type ActionDecision, type AgentAction, type AgentTool, type Answer, type CartResult, type CatalogResult, type Document, type OrderResult, type ProductDetail, type ShopId } from "@/lib/demo";
 
 import { progressLabels, type ChatEvent, type ProgressStage, type ReportProgress } from "@/lib/chat-progress";
 
@@ -18,6 +18,7 @@ type SavedMessage = {
   id: string; role: "assistant" | "user"; content: string; reply_to_id: string | null; client_request_id: string | null;
   source_refs: Answer["sources"]; abstained: boolean; catalog_response: Answer["catalog"]; tool_name: Answer["toolUsed"];
   order_response: Answer["orders"]; agent_response: Answer["action"]; agent_input: ActionDecision | null;
+  cart_response?: Answer["cart"];
 };
 const sessionKey = (widget: string) => "shopops-chat:" + widget;
 
@@ -27,7 +28,8 @@ function savedTurns(messages: SavedMessage[]): Turn[] {
     const reply = replies.get(row.id)!;
     return { id: row.client_request_id ?? row.id, question: row.content, decision: row.agent_input ?? undefined,
       result: { answer: reply.content, sources: reply.source_refs, abstained: reply.abstained,
-        catalog: reply.catalog_response, toolUsed: reply.tool_name, orders: reply.order_response, action: reply.agent_response } };
+        catalog: reply.catalog_response, toolUsed: reply.tool_name, orders: reply.order_response, action: reply.agent_response,
+        cart: reply.cart_response ?? undefined } };
   });
 }
 const shortcutIcons = { new: Package, returns: Undo2, shipping: Package, exchange: RotateCcw };
@@ -131,52 +133,55 @@ export function PublicWidget({ widgetKey, name, catalogEnabled = false, customer
   </div></div>;
 }
 
+type DemoCustomer = "a" | "b" | null;
+const demoChoices: { key: DemoCustomer; label: string }[] = [
+  { key: null, label: "비로그인" }, { key: "a", label: "고객 A" }, { key: "b", label: "고객 B" },
+];
+
+// 시연용 합성 고객을 버튼으로 전환한다. 전환하면 새 대화를 연다.
+// A·B가 아닌 고객으로 로그인돼 있으면 어느 버튼도 눌린 상태로 보이지 않고, 비로그인을 누르면 로그아웃한다.
+type CustomerState = { loggedIn: boolean; customer: DemoCustomer };
 function CustomerAccess({ onChange }: { onChange: () => void }) {
-  const [signedIn, setSignedIn] = useState(false);
+  const [state, setState] = useState<CustomerState | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const disclosure = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     let active = true;
-    request<{ loggedIn: boolean }>("/api/public/customer")
-      .then(({ loggedIn }) => { if (active) setSignedIn(loggedIn); })
-      .catch(() => {});
+    request<CustomerState>("/api/public/customer")
+      .then((result) => { if (active) setState({ loggedIn: result.loggedIn, customer: result.customer ?? null }); })
+      .catch(() => { if (active) setState({ loggedIn: false, customer: null }); });
     return () => { active = false; };
   }, []);
 
-  async function authenticate(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const form = event ? new FormData(event.currentTarget) : null;
-    const command = form
-      ? { action: "login", email: form.get("email"), password: form.get("password") }
-      : { action: "logout" };
+  const pressed = (key: DemoCustomer) => state !== undefined && (key === null ? !state.loggedIn : state.customer === key);
+
+  async function choose(next: DemoCustomer) {
+    if (!state || pressed(next)) return;
     setBusy(true);
     setError("");
     try {
-      const result = await request<{ loggedIn: boolean }>("/api/public/customer", json("POST", command));
-      setSignedIn(result.loggedIn);
-      if (disclosure.current) disclosure.current.open = false;
+      if (state.loggedIn) await request("/api/public/customer", json("POST", { action: "logout" }));
+      setState({ loggedIn: false, customer: null });
+      if (next) {
+        const result = await request<CustomerState>("/api/public/customer", json("POST", { action: "demo", customer: next }));
+        setState({ loggedIn: result.loggedIn, customer: result.customer ?? null });
+      }
       onChange();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "고객 인증에 실패했어요.");
+      setError(error instanceof Error ? error.message : "고객 전환에 실패했어요.");
     } finally {
       setBusy(false);
     }
   }
 
-  return <details className="customer-access" ref={disclosure}>
-    <summary className="button secondary">{signedIn ? "데모 고객 연결됨" : "고객 로그인"}</summary>
-    <div className="customer-popover">
-      {signedIn ? <Button className="secondary" disabled={busy} onClick={() => void authenticate()}>로그아웃</Button>
-        : <form onSubmit={authenticate}>
-          <label>이메일<input name="email" type="email" autoComplete="email" required /></label>
-          <label>비밀번호<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
-          <Button className="primary" type="submit" disabled={busy}>로그인</Button>
-        </form>}
-      {error && <p className="error" role="alert">{error}</p>}
+  return <div className="customer-access">
+    <div className="customer-switch" role="group" aria-label="데모 고객 전환">
+      {demoChoices.map((choice) => <button key={choice.label} type="button" aria-pressed={pressed(choice.key)}
+        disabled={busy || state === undefined} onClick={() => void choose(choice.key)}>{choice.label}</button>)}
     </div>
-  </details>;
+    {error && <p className="error customer-error" role="alert">{error}</p>}
+  </div>;
 }
 
 const toolLabels: Record<AgentTool, string> = {
@@ -188,6 +193,14 @@ const toolLabels: Record<AgentTool, string> = {
   check_return_eligibility: "반품 조건 확인",
   submit_return_request: "반품 접수",
   create_support_ticket: "상담 문의 접수",
+  get_product: "상품 상세",
+  view_cart: "장바구니",
+  update_cart: "장바구니 변경",
+  prepare_checkout: "주문 확인",
+  place_order: "모의 결제 주문",
+  list_addresses: "배송지 목록",
+  prepare_order_change: "주문 변경 확인",
+  change_order: "주문 변경",
 };
 
 function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = false }: {
@@ -313,11 +326,14 @@ function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = fal
                   {turn.result ? <div className="assistant-answer">
                     <p className="assistant-copy">{turn.result.answer}</p>
                     {turn.result.toolUsed && <span className="tool-used" aria-label="사용한 도구">{toolLabels[turn.result.toolUsed]}</span>}
-                    {turn.result.catalog && <ProductCards catalog={turn.result.catalog} />}
+                    {turn.result.catalog && turn.result.action?.kind !== "checkout" && <ProductCards catalog={turn.result.catalog}
+                      pick={waiting || !catalogEnabled ? undefined : (name, size) => void ask(`${name} ${size} 사이즈로 할게요`)} />}
+                    {turn.result.product && <ProductDetailCard product={turn.result.product} />}
+                    {turn.result.cart && turn.result.action?.kind !== "checkout" && <CartDetails cart={turn.result.cart} />}
                     {turn.result.orders && <OrderDetails result={turn.result.orders} />}
                     {turn.result.action && <ActionDetails action={turn.result.action} active={turn.id === lastAction} disabled={waiting}
                       choose={(value) => void ask(value)}
-                      decide={(value) => void ask(value.decision === "confirm" ? "접수 확인" : "접수 취소", undefined, value)} />}
+                      decide={(value) => void ask(decisionLabel(turn.result?.action, value), undefined, value)} />}
                     {turn.result.sources.length > 0 && <div className="reply-sources">
                       {turn.result.sources.map((source) => <details key={source.documentId} className="inline-source">
                         <summary>
@@ -358,12 +374,64 @@ const productCurrency = new Intl.NumberFormat("ko-KR", { style: "currency", curr
 const orderDate = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
 const scanDate = new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" });
 
+// 확인 카드 결정은 항상 같은 문장으로 보낸다. 재전송 시 서버가 같은 요청인지 문장으로 비교한다.
+function decisionLabel(action: AgentAction | undefined, value: ActionDecision) {
+  const confirm = value.decision === "confirm";
+  if (action?.kind === "checkout") return confirm ? "주문 확인" : "주문 취소";
+  if (action?.kind === "change") return confirm ? "변경 확인" : "변경 안 함";
+  return confirm ? "접수 확인" : "접수 취소";
+}
+
+const changeTitles = { cancel: "주문 취소", address: "배송지 변경", exchange: "사이즈 교환" } as const;
+
 function ActionDetails({ action, active, disabled, choose, decide }: {
   action: AgentAction; active: boolean; disabled: boolean; choose: (value: string) => void; decide: (value: ActionDecision) => void;
 }) {
   const [condition, setCondition] = useState(false);
   if (action.kind === "closed") return null;
-  if (action.kind === "receipt") return <p className="action-receipt"><Check size={15} aria-hidden="true" /><span>접수번호 <strong>{action.id}</strong></span></p>;
+  if (action.kind === "receipt") return <p className="action-receipt"><Check size={15} aria-hidden="true" />{action.action === "checkout"
+    ? <span>주문번호 <strong>{action.orders?.join(", ")}</strong> · 모의 결제</span>
+    : <span>{action.action in changeTitles ? changeTitles[action.action as keyof typeof changeTitles] + " · " : ""}접수번호 <strong>{action.id}</strong></span>}</p>;
+  if (action.kind === "addresses") return <ul className="order-history" aria-label="배송지 선택">
+    {action.items.map((place) => <li className="order-row" key={place.id}>
+      <button type="button" className="order-choice" disabled={!active || disabled} onClick={() => choose(place.label + " 배송지로 바꿔줘")}>
+        <span><strong>{place.label}{place.isDefault && " · 기본"}</strong><small>{place.summary}</small></span>
+        <ChevronRight size={15} aria-hidden="true" />
+      </button>
+    </li>)}
+  </ul>;
+  if (action.kind === "change") {
+    const exchange = action.change === "exchange";
+    return <section className="shipment-card action-card" aria-label={changeTitles[action.change]}>
+      <div className="shipment-heading"><strong>{changeTitles[action.change]}</strong><span>{action.order.status}</span></div>
+      <p className="shipment-meta">{action.order.reference} · {action.order.name} · {action.order.quantity}개</p>
+      {action.change === "address" && <p className="shipment-meta">새 배송지: {action.detail.label} · {action.detail.summary}</p>}
+      {exchange && <p className="shipment-meta">{action.detail.fromSize ?? "기존"} → {action.detail.size}</p>}
+      {action.change === "cancel" && <p className="shipment-meta">출고 전 주문이라 바로 취소돼요.</p>}
+      {active && <>
+        {exchange && <label className="action-check"><input type="checkbox" checked={condition} disabled={disabled}
+          onChange={(event) => setCondition(event.target.checked)} /> 미사용 상품이며 태그가 부착돼 있어요.</label>}
+        <div className="action-buttons">
+          <Button className="primary" disabled={disabled || exchange && !condition}
+            onClick={() => decide({ approvalId: action.id, decision: "confirm", itemConditionConfirmed: condition })}>
+            {action.change === "cancel" ? "주문 취소하기" : action.change === "address" ? "배송지 바꾸기" : "교환 신청"}</Button>
+          <Button className="secondary" disabled={disabled}
+            onClick={() => decide({ approvalId: action.id, decision: "cancel", itemConditionConfirmed: false })}>닫기</Button>
+        </div>
+      </>}
+    </section>;
+  }
+  if (action.kind === "checkout") return <section className="shipment-card action-card" aria-label="주문 확인">
+    <div className="shipment-heading"><strong>주문 확인</strong><span>모의 결제</span></div>
+    <CartLines cart={action.cart} />
+    {active && <div className="action-buttons">
+      <Button className="primary" disabled={disabled}
+        onClick={() => decide({ approvalId: action.id, decision: "confirm", itemConditionConfirmed: false })}>
+        {productCurrency.format(action.cart.total)} 주문하기</Button>
+      <Button className="secondary" disabled={disabled}
+        onClick={() => decide({ approvalId: action.id, decision: "cancel", itemConditionConfirmed: false })}>취소</Button>
+    </div>}
+  </section>;
   if (action.kind === "return_reason") return active ? <div className="action-buttons">
     {["단순 변심", "상품 파손", "오배송"].map((reason) => <Button className="secondary" key={reason} disabled={disabled} onClick={() => choose(reason)}>{reason}</Button>)}
   </div> : null;
@@ -401,6 +469,7 @@ const returnStatus = {
   too_late: "반품 기한 지남",
   already_submitted: "반품 접수됨",
   review: "상담원 확인 필요",
+  canceled: "주문 취소됨",
 };
 
 function OrderDetails({ result }: { result: OrderResult }) {
@@ -428,19 +497,56 @@ function OrderDetails({ result }: { result: OrderResult }) {
   </section>;
 }
 
-function ProductCards({ catalog }: { catalog: CatalogResult }) {
+function CartLines({ cart }: { cart: CartResult }) {
+  return <>
+    <ul className="cart-lines">
+      {cart.lines.map((line) => <li key={line.productId + line.size}>
+        <span>{line.name} · {line.size} · {line.quantity}개</span><span>{productCurrency.format(line.lineTotal)}</span>
+      </li>)}
+    </ul>
+    <p className="shipment-meta">상품 {productCurrency.format(cart.subtotal)} · 배송비 {cart.shippingFee ? productCurrency.format(cart.shippingFee) : "무료"}</p>
+    <p className="cart-total"><span>결제 금액</span><strong>{productCurrency.format(cart.total)}</strong></p>
+  </>;
+}
+
+function CartDetails({ cart }: { cart: CartResult }) {
+  if (!cart.lines.length) return null;
+  return <section className="shipment-card action-card" aria-label="장바구니">
+    <div className="shipment-heading"><strong>장바구니</strong><span>{cart.lines.length}개 상품</span></div>
+    <CartLines cart={cart} />
+  </section>;
+}
+
+function ProductDetailCard({ product }: { product: ProductDetail }) {
+  return <section className="shipment-card action-card" aria-label="상품 상세">
+    <div className="shipment-heading"><strong>{product.name}</strong><span>{productCurrency.format(product.price)}</span></div>
+    <p className="shipment-meta">{product.material} · {product.fit}</p>
+    <p className="shipment-meta">관리: {product.care}</p>
+    <ul className="product-options" aria-label="사이즈 및 재고">
+      {product.options.map((option) => <li key={option.size} data-available={option.stock > 0}>
+        {option.size}{option.stock > 0 ? "" : " 품절"}
+      </li>)}
+    </ul>
+  </section>;
+}
+
+function ProductCards({ catalog, pick }: { catalog: CatalogResult; pick?: (name: string, size: string) => void }) {
   if (!catalog.products.length) return null;
 
   return <ul className="product-grid" aria-label="추천 상품">
     {catalog.products.map((product) => <li className="product-card" key={product.id}>
-      <Image className="product-image" src={product.image} alt={product.name} width={384} height={384} sizes="(max-width: 620px) 45vw, 210px" />
+      {product.image ? <Image className="product-image" src={product.image} alt={product.name} width={384} height={384} sizes="(max-width: 620px) 45vw, 210px" />
+        : <div className="product-image product-image-empty" role="img" aria-label={product.name + " 이미지 준비 중"}><Shirt size={22} strokeWidth={1.5} aria-hidden="true" /></div>}
       <div className="product-details">
         <h3>{product.name}</h3>
         <strong>{productCurrency.format(product.price)}</strong>
         <p>{product.color}</p>
         <ul className="product-options" aria-label="사이즈 및 재고">
           {product.options.map((option) => <li key={option.size} data-available={option.available}>
-            {option.size}{!option.available && " 품절"}
+            {option.available && pick
+              ? <button type="button" className="size-pick" aria-label={`${product.name} ${option.size} 선택`}
+                onClick={() => pick(product.name, option.size)}>{option.size}</button>
+              : <>{option.size}{!option.available && " 품절"}</>}
           </li>)}
         </ul>
       </div>

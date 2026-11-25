@@ -108,6 +108,15 @@ async function seed() {
     if (scan.error) throw Error("추가 모의 배송 기록을 등록하지 못했습니다.");
   }
 
+  // 합성 배송지. 채팅의 배송지 변경은 이 목록에서만 고른다.
+  const places = [["집", "서울 마포구 합정동 (합성 주소)", true], ["회사", "서울 중구 을지로 (합성 주소)", false]];
+  for (const email of demoCustomers) {
+    const saved = await client.from("mock_addresses").upsert(places.map(([label, summary, isDefault]) => ({
+      tenant_id: tenant.data.id, customer_user_id: existing.get(email), label, summary, is_default: isDefault,
+    })), { onConflict: "tenant_id,customer_user_id,label" });
+    if (saved.error) throw Error("합성 배송지를 등록하지 못했습니다.");
+  }
+
   console.log(`Style Shop 로컬 데모 고객 2명과 기본 모의 주문 ${fixtures.length + additionalOrders.length}건을 확인했습니다.`);
 
   if (process.argv.includes("--fresh-return")) {
