@@ -11,6 +11,8 @@ function apiUrl() {
 }
 
 export const isSupabaseEnabled = () => process.env.SHOP_OPS_BACKEND === "supabase";
+// 공개 데모 배포: 고객 채팅만 연다. 관리자 가입·로그인·업체 API는 막는다(문서 인덱싱 비용과 데이터 변경 방지).
+export const isPublicDemo = () => process.env.SHOP_OPS_PUBLIC_DEMO === "1";
 
 export async function userClient(cookieName?: string) {
   const jar = await cookies();

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DemoError } from "@/server/demo-core";
 import { handle, readBody, respond } from "@/server/demo-http";
 import { addDocument, getDocument, indexDocument, listDocuments, updateDocument } from "@/server/live-knowledge";
-import { requireTenant, requireUser, serverClient, isSupabaseEnabled } from "@/server/supabase";
+import { isPublicDemo, isSupabaseEnabled, requireTenant, requireUser, serverClient } from "@/server/supabase";
 
 type Context = { params: Promise<{ path?: string[] }> };
 const fields = z.object({ title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(10000), kind: z.enum(["faq", "markdown"]) });
@@ -24,6 +24,7 @@ const offset = (request: NextRequest) => {
 async function route(request: NextRequest, context: Context) {
   return handle(request, async () => {
     if (!isSupabaseEnabled()) throw missing();
+    if (isPublicDemo()) throw new DemoError(403, "공개 데모에서는 관리자 기능을 열지 않아요.");
     const { path = [] } = await context.params;
     const [rawTenant, collection, rawId, action] = path;
     const method = request.method;

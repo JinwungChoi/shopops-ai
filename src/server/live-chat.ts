@@ -18,9 +18,22 @@ async function budget(scope: string, limit: number) {
   if (!data) throw new DemoError(429, "요청이 많아요. 잠시 후 다시 시도해 주세요.");
 }
 
-export async function createSession(widgetKey: string) {
+// 공개 데모의 하루 답변 총량. 환경변수가 없으면(로컬) 제한하지 않는다.
+const dailyAnswerLimit = () => {
+  const value = Number(process.env.SHOP_OPS_DAILY_ANSWER_LIMIT);
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
+
+async function dailyBudget(scope: string, limit: number) {
+  const { data, error } = await serverClient().rpc("take_daily_budget", { p_scope_hash: hashToken(scope), p_limit: limit });
+  if (error) throw new DemoError(503, "일시적으로 상담을 시작할 수 없어요.");
+  if (!data) throw new DemoError(429, "오늘 데모 사용량이 다 찼어요. 내일 다시 이용해 주세요.");
+}
+
+export async function createSession(widgetKey: string, clientIp: string | null = null) {
   const client = serverClient();
   await budget("session:global", 80);
+  if (clientIp) await budget("session:ip:" + clientIp, 10);
   const { data: tenant, error } = await client.from("tenants").select("id")
     .eq("public_widget_key", widgetKey).eq("is_active", true).maybeSingle();
   if (error) throw new DemoError(503, "상담을 시작하지 못했어요.");
@@ -63,12 +76,16 @@ export async function history(sessionId: string, token: string, offset: number) 
   return data;
 }
 
-export async function answerMessage(sessionId: string, token: string, requestId: string, question: string, report?: ReportProgress, action?: ActionDecision) {
+export async function answerMessage(sessionId: string, token: string, requestId: string, question: string, report?: ReportProgress, action?: ActionDecision,
+  clientIp: string | null = null) {
   const { client, tenantId, sessionId: authorized, catalogEnabled, customerId } = await validSession(sessionId, token);
   if (action && (!catalogEnabled || !customerId)) throw new DemoError(401, "접수하려면 데모 고객으로 로그인해 주세요.");
   await budget("answer:session:" + authorized, 12);
   await budget("answer:tenant:" + tenantId, 35);
   await budget("answer:global", 100);
+  if (clientIp) await budget("answer:ip:" + clientIp, 15);
+  const daily = dailyAnswerLimit();
+  if (daily) await dailyBudget("answer:daily", daily);
 
   const { data: message, error: insertError } = await client.from("chat_messages").insert({
     tenant_id: tenantId, session_id: authorized, role: "user", content: question, client_request_id: requestId, agent_input: action ?? null,

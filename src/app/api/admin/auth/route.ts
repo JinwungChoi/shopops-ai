@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { DemoError } from "@/server/demo-core";
 import { handle, readBody, respond } from "@/server/demo-http";
-import { isSupabaseEnabled, userClient } from "@/server/supabase";
+import { isPublicDemo, isSupabaseEnabled, userClient } from "@/server/supabase";
 
 const credentials = z.discriminatedUnion("action", [
   z.object({ action: z.enum(["login", "signup"]), email: z.email().max(254), password: z.string().min(8).max(128) }).strict(),
@@ -12,6 +12,7 @@ const credentials = z.discriminatedUnion("action", [
 export function POST(request: NextRequest) {
   return handle(request, async () => {
     if (!isSupabaseEnabled()) throw new DemoError(404, "Supabase 모드를 먼저 설정해 주세요.");
+    if (isPublicDemo()) throw new DemoError(403, "공개 데모에서는 관리자 기능을 열지 않아요.");
     const command = await readBody(request, credentials);
     const client = await userClient();
     if (command.action === "logout") {

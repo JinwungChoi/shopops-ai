@@ -39,6 +39,13 @@ export async function readBody<T>(request: NextRequest, schema: z.ZodType<T>): P
   return parsed.data;
 }
 
+// 요청자 IP. Vercel이 덮어쓰는 헤더만 신뢰하므로 Vercel 밖(로컬)에서는 null이다. 제한 키로만 쓰고 저장하지 않는다(해시).
+export function clientIp(request: NextRequest) {
+  if (process.env.VERCEL !== "1") return null;
+  const value = request.headers.get("x-real-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0];
+  return value?.trim().slice(0, 64) || null;
+}
+
 export function workspace(request: NextRequest, create = false) {
   const id = request.cookies.get(cookieName)?.value ?? "";
   if (store.hasWorkspace(id)) return { id, fresh: false };

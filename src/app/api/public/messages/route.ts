@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Answer } from "@/lib/demo";
 import type { ChatEvent, ReportProgress } from "@/lib/chat-progress";
 import { DemoError } from "@/server/demo-core";
-import { handle, readBody, respond, store, workspace } from "@/server/demo-http";
+import { clientIp, handle, readBody, respond, store, workspace } from "@/server/demo-http";
 import { generate } from "@/server/generation";
 import { answerMessage } from "@/server/live-chat";
 import { decisionContent } from "@/server/agent-workflow";
@@ -54,7 +54,7 @@ export function POST(request: NextRequest) {
     if (action && !live) throw new DemoError(404, "접수 기능을 사용할 수 없어요.");
     const scope = live ? undefined : workspace(request);
     const run = async (report?: ReportProgress): Promise<Answer> => live
-      ? answerMessage(sessionId, token, clientRequestId, content, report, action)
+      ? answerMessage(sessionId, token, clientRequestId, content, report, action, clientIp(request))
       : store.answer(scope!.id, sessionId, token, clientRequestId, content, generate, report);
     if (request.headers.get("accept")?.includes("application/x-ndjson")) return streamAnswer(run);
     return respond(request, await run());

@@ -60,7 +60,7 @@ async function seed() {
     let id = existing.get(fixture.email);
     if (!id) {
       const created = await client.auth.admin.createUser({
-        email: fixture.email, password: "StyleShop-Demo-2026!", email_confirm: true,
+        email: fixture.email, password: process.env.SHOP_OPS_DEMO_PASSWORD || "StyleShop-Demo-2026!", email_confirm: true,
       });
       if (created.error || !created.data.user) throw Error("로컬 데모 고객을 등록하지 못했습니다.");
       id = created.data.user.id;
