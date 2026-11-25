@@ -103,7 +103,7 @@ const fakeClient = {
     const query = {
       select: () => query,
       eq: (column: string, value: string | boolean) => {
-        if (table === "mock_products") return query;
+        if (table === "mock_products" || table === "mock_shipment_events") return query;
         const key = ({ tenant_id: "tenant", customer_user_id: "customer", order_reference: "ref", status: "status" } as const)[column];
         if (!key) throw new Error("unexpected column " + column);
         filters.push((row) => row[key] === value);
@@ -225,6 +225,17 @@ describe("주문 내역 → 그중 반품 가능 + 반품비 → 제외 사유",
       results.push(refs((await chat(question, [route, finish], history.result.orders)).result.orders));
     }
     expect(results).toEqual([["STY-1002", "STY-1003", "STY-1006"], ["STY-1002", "STY-1003", "STY-1006"]]);
+  });
+
+  it("같은 상품 주문이 여러 건이어도 배송 중인 주문이 하나면 그 주문을 추적한다", async () => {
+    // 채팅으로 같은 재킷을 다시 주문해 출고 준비 중인 주문이 생긴 상황.
+    rows.push(a("STY-1013", "블랙 트윌 재킷", "preparing", "not_delivered", 24));
+    try {
+      const shipment = await chat("내 재킷 배송 어디까지 왔어?", [{ name: "track_shipment", args: { orderReference: null, productHint: "트윌 재킷" } }, finish]);
+      expect(shipment.result.orders).toMatchObject({ kind: "shipment", order: { reference: "STY-1001" } });
+    } finally {
+      rows.pop();
+    }
   });
 
   it("이전에 일부 주문만 보였다면 그중 판정은 그 주문들로 한정된다", async () => {

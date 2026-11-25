@@ -120,12 +120,14 @@ export async function trackShipment(tenantId: string, customerId: string, refere
   if (!orders.length) {
     return { answer: "로그인한 고객의 주문에서 찾지 못했어요. 상품명이나 주문번호를 확인해 주세요.", sources: [], abstained: true, toolUsed: "track_shipment" };
   }
-  if (orders.length > 1) {
+  // 같은 상품 주문이 여러 건이어도 배송 중인 주문이 하나뿐이면 그 주문을 추적한다. 그 외에는 고객이 고르게 한다.
+  const moving = orders.filter((order) => order.status === "in_transit");
+  const order = orders.length === 1 ? orders[0] : moving.length === 1 ? moving[0] : null;
+  if (!order) {
     return { answer: "배송을 확인할 주문번호를 알려주세요.", orders: { kind: "history", items: orders.map(toSummary) },
       sources: [], abstained: false, toolUsed: "track_shipment" };
   }
 
-  const order = orders[0];
   const events = await serverClient().from("mock_shipment_events").select("occurred_at,location,description")
     .eq("tenant_id", tenantId).eq("order_id", order.id).order("occurred_at", { ascending: false }).limit(6);
   if (events.error) throw new DemoError(502, "택배 이동 기록을 읽지 못했어요.");
