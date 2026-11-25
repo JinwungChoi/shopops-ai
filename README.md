@@ -77,11 +77,14 @@ npm run dev   # http://localhost:3000
 
 **실제 모델 + 로컬 Supabase** — Docker, Supabase CLI, `.env.local`의 `OPENAI_API_KEY`가 필요하며 OpenAI 사용량이 청구됩니다. 시드와 실행 순서는 [시연 가이드](demo/README.md)와 [인수인계 문서](docs/HANDOFF.md)에 있습니다. 채팅 상단의 **[비로그인] [고객 A] [고객 B]** 버튼으로 합성 고객을 바로 전환합니다.
 
-로컬 개발에서는 `SHOP_OPS_LLM=claude-cli`로 Claude Code CLI(Haiku)를 모델 대신 쓸 수 있습니다(프로덕션에서는 거부).
+## 로드맵
 
-## 범위 밖
+- **운영 지표:** 답변 피드백(도움 됨/안 됨)과 업체별 토큰·추정 비용 대시보드 (테이블 설계 완료)
+- **공개 데모 배포:** 일일 비용 한도, IP별 요청 제한, 데모 데이터 정기 초기화
+- **Phase 3:** 송장 OCR·상품 파손 사진 Vision, 문서 처리 Worker와 큐, 모니터링
+- **검색 고도화:** Hybrid Search·Rerank를 독립 평가셋으로 비교
 
-실제 결제·환불·택배 연동, 실제 고객 데이터, OCR/Vision(Phase 3), 공개 배포. 공개 운영 전에는 IP 식별, 비용 한도, 보관 기간과 삭제 절차를 정해야 합니다.
+결제·택배·환불은 모의 구현이며 모든 데이터는 합성 데이터입니다.
 
 ## 문서
 
