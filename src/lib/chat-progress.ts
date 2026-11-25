@@ -19,6 +19,8 @@ export const progressLabels = {
   list_addresses: "저장된 배송지 확인 중",
   prepare_order_change: "주문 상태와 변경 조건 확인 중",
   change_order: "주문 변경 처리 중",
+  list_requests: "접수 내역 확인 중",
+  get_order_detail: "주문 상세 확인 중",
   compose: "확인한 정책으로 답변 정리 중",
 } as const;
 

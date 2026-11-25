@@ -7,8 +7,8 @@ import { runAgentLoop } from "./agent-loop";
 import { createToolSelector, productFilters, type PresentedOrder, type RecentTurn } from "./agent-routing";
 import { runAgentWorkflow } from "./agent-workflow";
 import { catalogAnswer, type CatalogEntry, type CatalogFilters } from "./catalog";
-import { loadCatalog, prepareCheckout, productDetail, updateCart, viewCart } from "./store";
-import { listAddresses, listOrders, listReturnEligibility, orderLoginRequired, trackShipment } from "./mock-orders";
+import { clearCart, loadCatalog, prepareCheckout, productDetail, updateCart, viewCart } from "./store";
+import { listAddresses, listOrders, listRequests, listReturnEligibility, orderDetail, orderLoginRequired, trackShipment } from "./mock-orders";
 
 const orderContextSchema = z.object({
   reference: referenceSchema, name: z.string().max(200), status: z.string(), orderedAt: z.string(),
@@ -17,14 +17,14 @@ const orderContextSchema = z.object({
 });
 const orderContext = z.union([
   z.object({ kind: z.enum(["history", "return_eligibility"]), items: z.array(orderContextSchema).max(20) }),
-  z.object({ kind: z.literal("shipment"), order: orderContextSchema }),
+  z.object({ kind: z.enum(["shipment", "detail"]), order: orderContextSchema }),
 ]);
 
 const helpPrompt = "Style Shop의 주문·배송·반품, 상품, 쇼핑몰 정책을 안내해 드려요. 무엇을 확인할까요?";
 
 export function presentedOrders(value: unknown): PresentedOrder[] {
   const data = orderContext.safeParse(value).data;
-  return !data ? [] : data.kind === "shipment" ? [data.order] : data.items;
+  return !data ? [] : "order" in data ? [data.order] : data.items;
 }
 
 type Inquiry = {
@@ -50,6 +50,7 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   let workflowResult: Awaited<ReturnType<typeof runAgentWorkflow>> | undefined;
   let nextFilters: CatalogFilters | undefined;
   let shopResult: Answer | undefined;
+  const productNotes: string[] = [];
   let checkoutApproval: string | undefined;
   const listedAddresses = new Set<string>();
   let catalog: CatalogEntry[] | undefined;
@@ -73,8 +74,11 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
     }
     if (tool.name === "get_product") {
       report?.("get_product");
-      shopResult = await productDetail(tenantId, tool.args.productId, tool.args.productHint);
-      return { answer: shopResult.answer, product: shopResult.product };
+      const detail = await productDetail(tenantId, tool.args.productId, tool.args.productHint);
+      if (!productNotes.includes(detail.answer)) productNotes.push(detail.answer);
+      // 두 상품 이상을 조회했으면(비교 질문) 답변에 모두 담는다. 카드는 마지막 상품만 보여준다.
+      shopResult = productNotes.length > 1 ? { ...detail, answer: productNotes.join("\n\n") } : detail;
+      return { answer: detail.answer, product: detail.product };
     }
     if (tool.name === "view_cart" || tool.name === "add_to_cart" || tool.name === "update_cart_item") {
       report?.(tool.name === "view_cart" ? "view_cart" : "update_cart");
@@ -88,6 +92,28 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
           tool.name === "add_to_cart" ? "add" : "set", name);
       }
       return { answer: shopResult.answer, cart: shopResult.cart };
+    }
+    if (tool.name === "clear_cart") {
+      report?.("update_cart");
+      const cleared = await clearCart(scope, requestId + ":clear");
+      shopResult = cleared;
+      return { answer: cleared.answer, cart: cleared.cart };
+    }
+    if (tool.name === "show_addresses") {
+      if (!customerId) {
+        const login: Answer = { answer: "저장된 배송지는 데모 고객으로 로그인한 뒤 볼 수 있어요.", sources: [], abstained: true, toolUsed: "list_addresses" };
+        shopResult = login;
+        return { answer: login.answer };
+      }
+      report?.("list_addresses");
+      const listed = await listAddresses(tenantId, customerId);
+      const items = listed.action?.kind === "addresses" ? listed.action.items : [];
+      // 보기만 원하는 경우라 선택 버튼 카드는 띄우지 않는다. 주문 배송지 변경은 prepare_order_change가 판정 후 버튼을 보여준다.
+      const shown: Answer = items.length ? { answer: [`저장된 배송지 ${items.length}곳이에요.`,
+        ...items.map((item) => `- ${item.label}${item.isDefault ? "(기본)" : ""}: ${item.summary}`),
+        "주문 배송지를 바꾸려면 상품명과 함께 말씀해 주세요."].join("\n"), sources: [], abstained: false, toolUsed: "list_addresses" } : listed;
+      shopResult = shown;
+      return { answer: shown.answer };
     }
     if (tool.name === "prepare_checkout") {
       report?.("prepare_checkout");
@@ -153,6 +179,12 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
         case "list_orders":
           orderResult = await listOrders(tenantId, customerId, tool.args.status);
           break;
+        case "list_requests":
+          orderResult = await listRequests(tenantId, customerId, tool.args.kind, reference);
+          break;
+        case "get_order_detail":
+          orderResult = await orderDetail(tenantId, customerId, reference, productHint);
+          break;
         case "track_shipment":
           orderResult = await trackShipment(tenantId, customerId, reference, productHint);
           break;
@@ -194,18 +226,22 @@ export async function answerInquiry({ tenantId, sessionId, customerId, question,
   const pendingCard = workflowResult?.answer.action ?? shopResult?.action;
   const clarification = status === "clarify" && !pendingCard && !workflowResult
     ? catalogResult || shopResult?.product ? "원하는 상품의 사이즈 버튼을 눌러 골라 주세요. 수량을 말하지 않으면 1개로 담아요."
+      : answers.some((entry) => /골라 주세요|알려주세요|알려 주세요/u.test(entry.answer)) ? undefined
       : answers.length ? "확인할 주문번호나 상품명을 알려주세요." : helpPrompt : undefined;
   const incomplete = status === "incomplete" && !pendingCard
     ? "추가 확인이 필요한 내용은 다시 물어봐 주세요." : undefined;
+  // 맞는 도구가 없으면 비슷한 도구로 다른 질문에 답하지 않고 정직하게 알린다.
+  const unsupported = status === "unsupported" && !pendingCard
+    ? "이 요청은 채팅에서 바로 확인하거나 처리할 수 없어요. 상담원 확인이 필요하면 '상담원 연결해줘'라고 말씀해 주세요." : undefined;
   const result: Answer | undefined = primary ? {
     ...primary,
-    answer: [...new Set([...answers.map((entry) => entry.answer), clarification, incomplete].filter(Boolean))].join("\n\n"),
+    answer: [...new Set([...answers.map((entry) => entry.answer), clarification, incomplete, unsupported].filter(Boolean))].join("\n\n"),
     orders: orderResult?.orders, catalog: catalogResult?.catalog, cart: shopResult?.cart, product: shopResult?.product,
     abstained: answers.every((answer) => answer.abstained),
   } : policy ? {
     ...policy, answer: [policy.answer, ...answers.map((entry) => entry.answer)].join("\n\n"),
   } : {
-    answer: clarification ?? helpPrompt,
+    answer: unsupported ?? clarification ?? helpPrompt,
     sources: [], abstained: true,
   };
   const checkpoint: AgentState | undefined = workflowResult?.checkpoint ?? (checkoutApproval ? {

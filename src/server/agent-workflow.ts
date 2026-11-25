@@ -112,7 +112,22 @@ async function prepareChange({ scope, checkpoint, candidate, report }: GraphStat
     ...scopeArgs(scope), p_order: candidate.id, p_kind: kind, p_address: target.addressId, p_size: target.size,
   });
   if (error) throw new DemoError(502, "주문 변경 내용을 준비하지 못했어요. 다시 시도해 주세요.");
-  const draft = changeResponse.parse(data);
+  let draft = changeResponse.parse(data);
+  if (draft.status === "same_size") {
+    // 이미 그 사이즈로 산 주문이다. 사이즈를 비운 판정으로 교환 가능한 사이즈를 받아 다시 묻는다.
+    const retry = await serverClient().rpc("prepare_order_change", {
+      ...scopeArgs(scope), p_order: candidate.id, p_kind: kind, p_address: null, p_size: null,
+    });
+    if (retry.error) throw new DemoError(502, "주문 변경 내용을 준비하지 못했어요. 다시 시도해 주세요.");
+    const sizes = changeResponse.parse(retry.data);
+    if (sizes.status === "size_missing") {
+      return { checkpoint: { ...checkpoint, change: { ...target, size: null }, waiting: "order" }, result: message(
+        `${josa(candidate.summary.name, "은", "는")} 이미 ${sizes.fromSize ?? target.size} 사이즈로 주문하셨어요. `
+        + (sizes.sizes.length ? "교환 가능한 사이즈: " + bySize(sizes.sizes).join(", ") + ". 어떤 사이즈로 바꿀까요?"
+          : "지금 교환할 수 있는 다른 사이즈 재고가 없어요."), { toolUsed: "prepare_order_change" }) };
+    }
+    draft = sizes;
+  }
   if (draft.status === "address_missing" && !target.addressId) {
     const listed = await listAddresses(scope.tenantId, scope.customerId);
     return { checkpoint: { ...checkpoint, waiting: "order" }, result: { ...listed,

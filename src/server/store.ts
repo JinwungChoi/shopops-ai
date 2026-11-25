@@ -114,6 +114,20 @@ export async function updateCart(scope: Scope, request: string, productId: strin
   }
 }
 
+// 장바구니의 모든 줄을 0개로 바꾼다. 되돌릴 수 있는 변경이며 줄마다 요청 키를 달아 재전송을 한 번만 반영한다.
+export async function clearCart(scope: Scope, request: string): Promise<Answer> {
+  if (!scope.customerId) return loginRequired("update_cart");
+  const current = await viewCart(scope);
+  const lines = current.cart?.lines ?? [];
+  if (!lines.length) return { ...current, answer: "장바구니가 이미 비어 있어요.", toolUsed: "update_cart" };
+  let last: Answer = current;
+  for (const line of lines) {
+    last = await updateCart(scope, request + ":" + line.productId + ":" + line.size, line.productId, line.size, 0, "set", line.name);
+    if (last.abstained) return last;
+  }
+  return { ...last, answer: `장바구니에서 ${lines.length}개 상품을 모두 뺐어요.` };
+}
+
 const checkoutDraft = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending"), id: z.uuid(), expiresAt: z.iso.datetime({ offset: true }), cart: cartSchema }),
   z.object({ status: z.literal("out_of_stock"), shortages: z.array(z.object({ productId: z.string(), size: z.string(), stock: z.int() })) }),

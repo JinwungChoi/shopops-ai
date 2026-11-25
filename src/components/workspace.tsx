@@ -7,7 +7,7 @@ import {
   Layers3, MessageSquare, Package, Plus, RotateCcw, Shirt, Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { categories, shops, showcaseShop, suggestions, type ActionDecision, type AgentAction, type AgentTool, type Answer, type CartResult, type CatalogResult, type Document, type OrderResult, type ProductDetail, type ShopId } from "@/lib/demo";
+import { categories, shops, showcaseShop, suggestions, type ActionDecision, type AgentAction, type AgentTool, type Answer, type CartResult, type CatalogResult, type Document, type OrderResult, type ProductDetail, type RequestKind, type RequestSummary, type ShopId } from "@/lib/demo";
 
 import { progressLabels, type ChatEvent, type ProgressStage, type ReportProgress } from "@/lib/chat-progress";
 
@@ -201,6 +201,8 @@ const toolLabels: Record<AgentTool, string> = {
   list_addresses: "배송지 목록",
   prepare_order_change: "주문 변경 확인",
   change_order: "주문 변경",
+  list_requests: "접수 내역",
+  get_order_detail: "주문 상세",
 };
 
 function Chat({ shop, publicMode, widgetKey = shop, catalogEnabled, resume = false }: {
@@ -472,7 +474,40 @@ const returnStatus = {
   canceled: "주문 취소됨",
 };
 
+const requestKinds: Record<RequestKind, string> = { return: "반품", exchange: "교환", cancel: "주문 취소", address: "배송지 변경", ticket: "상담 문의" };
+// 반품 사유와 상담 문의 사유. DB에는 코드로 저장된다.
+const requestReasons: Record<string, string> = { change_of_mind: "단순 변심", damaged: "상품 파손·하자", wrong_item: "오배송",
+  missing_delivery: "배송 완료 미수령", policy_review: "반품 조건 검토", staff_requested: "상담원 문의", customer_request: "고객 요청" };
+
+function RequestRows({ items, label }: { items: RequestSummary[]; label: string }) {
+  return <ul className="order-history" aria-label={label}>
+    {items.map((item) => <li className="order-row" key={item.id}>
+      <div><strong>{requestKinds[item.kind]}{item.name ? " · " + item.name : ""}</strong><span>{item.status}</span></div>
+      <p>{[item.reference, orderDate.format(new Date(item.createdAt)) + " 접수",
+        item.kind === "ticket" || item.kind === "return" ? (item.detail ? requestReasons[item.detail] ?? item.detail : null) : item.detail,
+        item.fee !== null ? "반품비 " + productCurrency.format(item.fee) : null].filter(Boolean).join(" · ")}</p>
+    </li>)}
+  </ul>;
+}
+
 function OrderDetails({ result }: { result: OrderResult }) {
+  if (result.kind === "requests") {
+    return result.items.length ? <RequestRows items={result.items} label="접수 내역" /> : null;
+  }
+  if (result.kind === "detail") {
+    const { order, info } = result;
+    return <section className="shipment-card" aria-label="주문 상세">
+      <div className="shipment-heading"><strong>{order.name}</strong><span>{order.status}</span></div>
+      <p className="shipment-meta">{order.reference} · {orderDate.format(new Date(order.orderedAt))} 주문</p>
+      <dl className="order-detail">
+        <div><dt>사이즈·수량</dt><dd>{(info.size ?? "기록 없음") + " · " + order.quantity + "개"}</dd></div>
+        <div><dt>결제 금액</dt><dd>{info.paidTotal !== null ? productCurrency.format(info.paidTotal) : "기록 없음"}</dd></div>
+        <div><dt>결제 수단</dt><dd>{info.paymentMethod ?? "기존 주문(모의)"}</dd></div>
+        <div><dt>배송지</dt><dd>{info.address ?? "기록 없음"}</dd></div>
+      </dl>
+      {result.requests.length > 0 && <RequestRows items={result.requests} label="이 주문의 접수 내역" />}
+    </section>;
+  }
   if (result.kind !== "shipment") {
     if (result.items.length === 0) return null;
     return <ul className="order-history" aria-label={result.kind === "history" ? "최근 주문 내역" : "주문별 반품 가능 여부"}>

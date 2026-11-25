@@ -4,7 +4,7 @@ import fixtures from "../../demo/showcase-policies.json";
 describe("쇼핑몰 시연용 정책", () => {
   it("공개 쇼핑몰의 정책은 고유 제목과 복사할 질문을 갖고 한 청크로 인덱싱된다", () => {
     for (const policies of Object.values(fixtures)) {
-      expect(policies).toHaveLength(23);
+      expect(policies).toHaveLength(24);
       expect(new Set(policies.map((policy) => policy.id)).size).toBe(policies.length);
       expect(new Set(policies.map((policy) => policy.title)).size).toBe(policies.length);
       for (const policy of policies) {

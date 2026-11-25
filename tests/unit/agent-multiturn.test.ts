@@ -161,7 +161,7 @@ const policyAnswer = vi.fn(async (): Promise<Answer> => ({
 }));
 
 const finish: AgentRoute = { name: "finish", args: { outcome: "answer" } };
-const refs = (result: OrderResult | undefined) => result && result.kind !== "shipment" ? result.items.map((item) => item.reference) : [];
+const refs = (result: OrderResult | undefined) => result && (result.kind === "history" || result.kind === "return_eligibility") ? result.items.map((item) => item.reference) : [];
 
 // live-chat.ts처럼 직전 턴의 order_response만 다음 턴의 이전 주문 범위로 넘긴다.
 async function chat(question: string, routes: AgentRoute[], displayed?: OrderResult, customerId: string | null = customerA) {
@@ -257,7 +257,7 @@ describe("서버 바인딩 경계", () => {
     expect(rpcCalls.at(-1)?.args).toMatchObject({ p_tenant: tenantId, p_customer: customerA, p_reference: null });
     expect(refs(result.result.orders)).not.toContain("STY-2001");
     expect(refs(result.result.orders)).toHaveLength(12);
-    expect(result.result.answer).toBe("주문 12건의 반품 가능 여부를 확인했어요.");
+    expect(result.result.answer).toBe("주문 12건을 확인했어요. 주문별 판정은 아래 목록에서 확인해 주세요.");
   });
 
   it("이전에 보여준 주문이 없으면 그중 조회를 DB에 보내지 않고 보류한다", async () => {

@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import type { Answer } from "@/lib/demo";
+import type { Answer, RequestKind } from "@/lib/demo";
 import { DemoError } from "./demo-core";
 import { serverClient } from "./supabase";
 
@@ -36,7 +36,76 @@ export async function listAddresses(tenantId: string, customerId: string): Promi
     : { answer: "저장된 배송지가 없어요. 주문 상세에서 배송지를 먼저 등록해 주세요.", sources: [], abstained: true, toolUsed: "list_addresses" };
 }
 
-export function orderLoginRequired(toolUsed: "list_orders" | "track_shipment" | "check_return_eligibility"): Answer {
+const requestList = z.array(z.object({
+  id: z.uuid(), kind: z.enum(["return", "exchange", "cancel", "address", "ticket"]), reference: z.string().nullable(),
+  name: z.string().nullable(), createdAt: z.string(), status: z.string(), fee: z.int().nullable(), detail: z.string().nullable(),
+})).max(20);
+// 받침이 있으면 "이에요", 없으면 "예요". 영문·숫자로 끝나면 "예요".
+const copula = (word: string) => {
+  const code = word.charCodeAt(word.length - 1) - 0xac00;
+  return word + (code >= 0 && code <= 11171 && code % 28 ? "이에요" : "예요");
+};
+const won = (value: number) => value.toLocaleString("ko-KR") + "원";
+
+const requestLabels = { return: "반품", exchange: "교환", cancel: "주문 취소", address: "배송지 변경", ticket: "상담 문의" } as const;
+
+async function readRequests(tenantId: string, customerId: string, kind: RequestKind | null, reference: string | null) {
+  const { data, error } = await serverClient().rpc("list_mock_requests", { p_tenant: tenantId, p_customer: customerId, p_kind: kind, p_reference: reference });
+  if (error) throw new DemoError(502, "접수 내역을 확인하지 못했어요.");
+  return requestList.parse(data);
+}
+
+// 이미 접수한 반품·교환·취소·배송지 변경·상담 문의. 건수와 카드는 같은 결과에서 만든다.
+export async function listRequests(tenantId: string, customerId: string, kind: RequestKind | null, reference: string | null = null): Promise<Answer> {
+  const items = await readRequests(tenantId, customerId, kind, reference);
+  const label = (reference ? reference + " " : "") + (kind ? requestLabels[kind] : "접수");
+  return {
+    answer: items.length ? `${label} 내역 ${items.length}건이에요.` : `${label} 내역이 없어요.`,
+    orders: { kind: "requests", filter: kind, items }, sources: [], abstained: false, toolUsed: "list_requests",
+  };
+}
+
+const detailSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), size: z.string().nullable(), address: z.string().nullable(),
+    paymentMethod: z.string().nullable(), paidTotal: z.int().nullable() }),
+  z.object({ status: z.literal("missing") }),
+]);
+
+// 주문 한 건의 사이즈·배송지·결제와 그 주문의 접수 내역.
+export async function orderDetail(tenantId: string, customerId: string, reference: string | null, productHint: string | null): Promise<Answer> {
+  const orders = await findCustomerOrders(tenantId, customerId, reference, productHint);
+  if (!orders.length) {
+    return { answer: "로그인한 고객의 주문에서 찾지 못했어요. 상품명이나 주문번호를 확인해 주세요.", sources: [], abstained: true, toolUsed: "get_order_detail" };
+  }
+  if (orders.length > 1) {
+    return { answer: "상세를 확인할 주문을 골라 주세요.", orders: { kind: "history", items: orders.map(toSummary) },
+      sources: [], abstained: false, toolUsed: "get_order_detail" };
+  }
+  const order = orders[0];
+  const { data, error } = await serverClient().rpc("mock_order_detail", { p_tenant: tenantId, p_customer: customerId, p_reference: order.order_reference });
+  if (error) throw new DemoError(502, "주문 상세를 확인하지 못했어요.");
+  const detail = detailSchema.parse(data);
+  if (detail.status === "missing") {
+    return { answer: "로그인한 고객의 주문에서 찾지 못했어요.", sources: [], abstained: true, toolUsed: "get_order_detail" };
+  }
+  const { status: _status, ...info } = detail;
+  void _status;
+  const requests = await readRequests(tenantId, customerId, null, order.order_reference);
+  const summary = toSummary(order);
+  const facts = [
+    `${info.size ?? "사이즈 기록 없음"} · ${order.quantity}개`,
+    info.paidTotal !== null ? `결제 ${won(info.paidTotal)}${info.paymentMethod ? "(" + info.paymentMethod + ")" : ""}` : null,
+    info.address ? `배송지 ${info.address}` : null,
+  ].filter(Boolean).join(", ");
+  const pending = requests.map((item) => `${requestLabels[item.kind]} ${item.status}${item.fee !== null ? "(반품비 " + won(item.fee) + ")" : ""}`);
+  return {
+    answer: [`${order.order_reference} ${order.product_name}: ${facts}. 지금 ${copula(summary.status)}.`,
+      pending.length ? `이 주문의 접수 내역: ${pending.join(", ")}.` : null].filter(Boolean).join(" "),
+    orders: { kind: "detail", order: summary, info, requests }, sources: [], abstained: false, toolUsed: "get_order_detail",
+  };
+}
+
+export function orderLoginRequired(toolUsed: "list_orders" | "track_shipment" | "check_return_eligibility" | "list_requests" | "get_order_detail"): Answer {
   return { answer: "내 주문 정보를 보려면 데모 고객으로 로그인해 주세요.", sources: [], abstained: true, toolUsed };
 }
 
@@ -82,7 +151,11 @@ export async function listReturnEligibility(tenantId: string, customerId: string
   } else if (matching.length === 1) {
     answer = returnStatusMessages[matching[0].eligibility];
   } else if (matching.length) {
-    answer = `주문 ${items.length}건의 반품 가능 여부를 확인했어요.`;
+    const reasons = { eligible: "반품 가능", not_delivered: "아직 배송 완료 전", too_late: "반품 기한 지남",
+      already_submitted: "이미 반품 접수됨", review: "상담원 확인 필요", canceled: "취소된 주문" } as const;
+    answer = `주문 ${items.length}건을 확인했어요. ` + (items.length <= 5
+      ? items.map((item) => `${item.reference} ${item.name}: ${reasons[item.eligibility]}`).join(", ") + "."
+      : "주문별 판정은 아래 목록에서 확인해 주세요.");
   }
   return { answer, sources: [], abstained: !rows.length, toolUsed: "check_return_eligibility",
     orders: { kind: "return_eligibility", items } };
@@ -137,7 +210,8 @@ export async function trackShipment(tenantId: string, customerId: string, refere
 
   return {
     answer: last
-      ? `마지막 스캔 위치는 ${last.location}이에요. ${time.format(new Date(last.occurredAt))}에 ${last.description} 기록이 남았어요.`
+      ? `마지막 스캔 위치는 ${copula(last.location)}. ${time.format(new Date(last.occurredAt))}에 ${last.description} 기록이 남았어요.`
+        + (order.tracking_number ? ` 운송장 번호는 ${order.carrier ? order.carrier + " " : ""}${order.tracking_number}이에요.` : "")
       : `${order.product_name}은 ${statusLabels[order.status]}이에요. 아직 확인할 수 있는 택배 스캔 기록은 없어요.`,
     orders: { kind: "shipment", order: toSummary(order), carrier: order.carrier, trackingNumber: order.tracking_number, events: history },
     sources: [], abstained: false, toolUsed: "track_shipment",

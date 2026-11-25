@@ -2,7 +2,8 @@
 // 질문별 도구 단계, 답변, 출처, 주문 카드, 확인 카드, 임시 고객의 DB 최종 상태를 JSON으로 남긴다.
 // 실행: 로컬 Supabase 환경 변수와 SUPABASE_SECRET_KEY를 지정하고 3031 서버를 띄운 뒤
 //   node scripts/cs-scenarios.mjs [시나리오 ID 정규식] [출력 경로]
-// 실제 OpenAI API를 호출하므로 비용이 든다. 판정은 출력 JSON을 사람이 검토한다.
+// 실제 OpenAI API를 호출하므로 비용이 든다. 네 번째 값(기대 결과)이 있는 시나리오는 마지막 질문의 응답을 자동 채점한다.
+// 기대 결과: tool(최종 도구 또는 후보 배열), has(반드시 포함), not(포함 금지), abstained, action(카드 종류), noAction.
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -86,6 +87,58 @@ const scenarios = [
   ["M07 이전주문혼동", "temp", ["머플러 주문 배송지 바꾸고 싶어요", "회사 배송지로 바꿔줘", "{confirm}", "초어 재킷 L로 교환하고 싶어요"]],
   ["X01 반품접수-확인", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "방금 반품한 거 다시 반품해줘"]],
   ["X02 반품접수-취소", "temp", ["검증 셔츠 반품할래요. 단순 변심", "{cancel}"]],
+
+  // 경우의 수 표(docs/CS_COVERAGE.md). 네 번째 값은 마지막 응답의 기대 결과다.
+  // 주문
+  ["G01 주문전체", A, ["주문한 거 다 보여줘"], { tool: "list_orders" }],
+  ["G02 배송중만", A, ["배송 중인 주문만 보여줘"], { tool: "list_orders", has: ["STY-1001"] }],
+  ["G03 주문상세-번호", A, ["STY-1001 몇 사이즈로 샀었지? 얼마 결제했어?"], { tool: "get_order_detail", has: ["STY-1001"] }],
+  ["G04 주문상세-상품명", A, ["블랙 트윌 재킷 주문 상세 보여줘"], { tool: "get_order_detail" }],
+  ["G05 주문배송지", "temp", ["머플러 주문 어디로 배송돼요?"], { tool: "get_order_detail", has: ["집"] }],
+  ["G06 비로그인상세", null, ["STY-1001 주문 상세 알려줘"], { abstained: true, has: ["로그인"] }],
+  // 결제
+  ["G10 결제수단", null, ["카드 말고 어떤 결제 수단 돼요?"], { tool: "search_policies" }],
+  ["G11 결제금액", A, ["STY-1003 결제 금액 얼마였어요?"], { tool: "get_order_detail", has: ["STY-1003"] }],
+  ["G12 이중결제", A, ["결제가 두 번 된 것 같아요"], { tool: ["create_support_ticket", "none"], not: ["환불되었습니다", "확인했어요"] }],
+  // 배송
+  ["G20 배송지연", A, ["STY-1001 왜 이렇게 늦게 와요?"], { tool: ["track_shipment", "search_policies"], has: ["STY-1001"] }],
+  ["G21 송장번호", A, ["STY-1001 송장번호 알려줘"], { tool: "track_shipment", has: ["DEMO-1001"] }],
+  ["G22 배송지목록", "temp", ["내 배송지 목록 보여줘"], { tool: "list_addresses", has: ["회사"], noAction: true }],
+  ["G23 해외배송", null, ["해외로도 배송돼요?"], { not: ["해외 배송이 가능", "해외 배송 가능합니다"] }],
+  // 취소
+  ["G30 취소가능여부", "temp", ["머플러 주문 아직 취소 돼요?"], { tool: ["prepare_order_change", "search_policies"] }],
+  ["G31 취소내역", "temp", ["블랙 울 머플러 주문 취소해줘", "{confirm}", "취소한 주문 내역 보여줘"], { tool: "list_requests", has: ["cancel"] }],
+  ["G32 취소철회", "temp", ["블랙 울 머플러 주문 취소해줘", "{confirm}", "방금 취소한 거 다시 살릴 수 있어요?"], { not: ["복구했어요", "되살렸어요"] }],
+  // 반품
+  ["G40 반품신청건", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "반품 신청건 리스트좀"], { tool: "list_requests", has: ["return"] }],
+  ["G41 반품신청건-없음", A, ["반품 신청건 리스트좀"], { tool: "list_requests", not: ["반품을 신청할 수 있는 주문"] }],
+  ["G42 반품진행상황", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "방금 반품한 거 어떻게 됐어?"], { tool: "list_requests", has: ["return"] }],
+  ["G43 반품재신청", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "방금 반품한 거 다시 반품해줘"], { not: ["반품을 접수할 수 있어요"], noAction: true }],
+  ["G44 회수일정", null, ["반품하면 언제 가지러 와요?"], { tool: "search_policies" }],
+  ["G45 환불금액", "temp", ["검증 셔츠 반품해줘", "단순 변심이에요", "{confirm}", "환불은 얼마 받아요?"], { tool: ["list_requests", "search_policies", "get_order_detail"], has: ["6,000"] }],
+  ["G46 특정주문환불", A, ["STY-1003 환불 언제 돼요?"], { has: ["STY-1003"], not: ["STY-1006"] }],
+  ["G47 반품철회", A, ["반품 신청한 거 취소할 수 있어요?"], { abstained: false, not: ["철회했어요", "취소했어요"] }],
+  ["G48 반품불가이유", A, ["블랙 트윌 재킷은 왜 반품 안 돼요?"], { tool: "check_return_eligibility", has: ["배송 완료 전"] }],
+  ["G53 같은사이즈교환", A, ["STY-1003 M 사이즈로 교환해줘"], { tool: "prepare_order_change", has: ["교환 가능한 사이즈"] }],
+  // 교환
+  ["G50 교환내역", "temp", ["네이비 초어 재킷 L로 교환하고 싶어요", "{confirm}", "교환 신청한 거 보여줘"], { tool: "list_requests", has: ["exchange"] }],
+  ["G51 다른상품교환", "temp", ["초어 재킷을 블랙 트윌 재킷으로 바꿀 수 있어요?"], { noAction: true, not: ["교환을 접수했어요"] }],
+  ["G52 색상교환", "temp", ["초어 재킷 색상을 블랙으로 교환하고 싶어요"], { noAction: true, not: ["교환을 접수했어요"] }],
+  // 환불
+  ["G60 환불진행", B, ["환불 진행 상황 알려줘"], { tool: ["list_requests", "search_policies"] }],
+  // 장바구니
+  ["G70 장바구니비우기", "temp", ["아이보리 옥스퍼드 셔츠 M 담아줘", "장바구니 비워줘"], { tool: "update_cart", has: ["모두 뺐어요"] }],
+  ["G71 장바구니합계", "temp", ["아이보리 옥스퍼드 셔츠 M 두 개 담아줘", "총 얼마예요?"], { tool: ["view_cart", "update_cart"] }],
+  // 상품
+  ["G80 상품비교", null, ["블랙 트윌 재킷이랑 네이비 초어 재킷 차이가 뭐예요?"], { tool: ["get_product", "search_products"] }],
+  ["G81 후기", null, ["블랙 트윌 재킷 후기 어때요?"], { not: ["별점", "만족도가 높"] }],
+  ["G82 세일", null, ["지금 세일하는 거 있어요?"], { not: ["% 할인 중"] }],
+  // 회원
+  ["G90 비밀번호", A, ["비밀번호 바꾸고 싶어요"], { not: ["바꿨어요", "변경했어요"], noAction: true }],
+  ["G91 탈퇴", A, ["회원 탈퇴할래요"], { not: ["탈퇴했어요", "탈퇴 처리"], noAction: true }],
+  ["G92 적립금잔액", A, ["내 적립금 얼마 남았어요?"], { not: ["원 남았", "포인트 남았"] }],
+  // 상담
+  ["G95 문의내역", "temp", ["상담원 연결해줘", "{confirm}", "내 문의 내역 보여줘"], { tool: "list_requests", has: ["ticket"] }],
 ];
 
 async function tempCustomer() {
@@ -118,7 +171,23 @@ async function tempCustomer() {
   return { email, id: user.data.user.id, reference, orderId: order.data.id };
 }
 
-async function run([id, who, turns]) {
+// 마지막 응답을 기대 결과와 비교해 실패 사유 목록을 돌려준다.
+function grade(expect, turn) {
+  if (!expect) return null;
+  const fails = [];
+  const text = turn?.answer ?? "";
+  if (!turn || turn.error) fails.push("응답 오류: " + (turn?.error ?? "없음"));
+  const tools = [expect.tool].flat().filter(Boolean);
+  if (tools.length && !tools.includes(turn?.tool ?? "none")) fails.push(`도구 ${turn?.tool ?? "none"} (기대 ${tools.join("|")})`);
+  for (const word of expect.has ?? []) if (!text.includes(word) && !JSON.stringify(turn?.orders ?? "").includes(word)) fails.push("누락: " + word);
+  for (const word of expect.not ?? []) if (text.includes(word)) fails.push("금지 문구: " + word);
+  if (expect.abstained !== undefined && turn?.abstained !== expect.abstained) fails.push("보류 " + turn?.abstained);
+  if (expect.action && turn?.action?.kind !== expect.action && turn?.action?.action !== expect.action) fails.push("카드 " + (turn?.action?.kind ?? "없음"));
+  if (expect.noAction && turn?.action && turn.action.kind !== "closed") fails.push("불필요한 카드 " + turn.action.kind);
+  return fails;
+}
+
+async function run([id, who, turns, expect]) {
   const ctx = await request.newContext({ baseURL: base });
   const record = { id, who: who === A ? "A" : who === B ? "B" : who, turns: [] };
   let temp;
@@ -148,6 +217,8 @@ async function run([id, who, turns]) {
         error, tool: answer?.toolUsed, abstained: answer?.abstained, answer: answer?.answer,
         sources: answer?.sources?.map((x) => x.title),
         orders: answer?.orders && (answer.orders.kind === "shipment" ? { kind: "shipment", ref: answer.orders.order.reference, last: answer.orders.events?.[0]?.location }
+          : answer.orders.kind === "detail" ? { kind: "detail", ref: answer.orders.order.reference, info: answer.orders.info, requests: answer.orders.requests.length }
+          : answer.orders.kind === "requests" ? { kind: "requests", items: answer.orders.items.map((i) => `${i.kind}:${i.reference}:${i.status}`) }
           : { kind: answer.orders.kind, items: answer.orders.items.map((i) => i.reference + (i.eligibility ? ":" + i.eligibility : "")) }),
         catalog: answer?.catalog?.products?.map((p) => p.name),
         cart: answer?.cart && { lines: answer.cart.lines.map((l) => `${l.productId}:${l.size}x${l.quantity}`), total: answer.cart.total },
@@ -168,8 +239,10 @@ async function run([id, who, turns]) {
         orders: statuses.data?.map((row) => `${row.product_name}:${row.status}${row.address_id ? ":addr" : ""}`), changes: changes.data,
         checkouts: checkouts.data, placed: placed.data, cart: cart.data };
     }
+    record.fails = grade(expect, record.turns.at(-1));
   } catch (e) {
     record.fatal = String(e);
+    if (expect) record.fails = ["실행 실패: " + String(e)];
   } finally {
     if (temp) await db.auth.admin.deleteUser(temp.id);
     await ctx.dispose();
@@ -185,3 +258,10 @@ for (const s of scenarios.filter(([id]) => !only || only.test(id))) {
 }
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(results, null, 1));
+const graded = results.filter((r) => r.fails);
+if (graded.length) {
+  const failed = graded.filter((r) => r.fails.length);
+  console.error(`
+채점 ${graded.length}개 중 통과 ${graded.length - failed.length}, 실패 ${failed.length}`);
+  for (const r of failed) console.error(`  ✗ ${r.id}: ${r.fails.join(" / ")}`);
+}

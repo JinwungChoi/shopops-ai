@@ -5,7 +5,7 @@ import type { AgentRoute } from "./agent-routing";
 export type InquiryTool = Exclude<AgentRoute, { name: "finish" }>;
 type Select = (observation?: unknown) => Promise<AgentRoute>;
 type Execute = (tool: InquiryTool) => Promise<unknown>;
-export type LoopOutcome = "answer" | "clarify" | "incomplete";
+export type LoopOutcome = "answer" | "clarify" | "incomplete" | "unsupported";
 
 // 한 턴의 상담 에이전트 루프: decide(모델이 다음 도구 선택) → act(서버가 도구 실행) → decide … → 종료.
 // 모델은 도구 이름과 인자만 고른다. 실행·권한·업무 판정은 execute 안의 서버 코드와 DB가 맡는다.

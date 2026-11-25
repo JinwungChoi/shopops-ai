@@ -29,7 +29,7 @@ export type CatalogResult = { products: ProductCard[] };
 export type AgentTool = "search_policies" | "search_products" | "get_order_status" | "list_orders" | "track_shipment"
   | "check_return_eligibility" | "submit_return_request" | "create_support_ticket"
   | "get_product" | "view_cart" | "update_cart" | "prepare_checkout" | "place_order"
-  | "list_addresses" | "prepare_order_change" | "change_order";
+  | "list_addresses" | "prepare_order_change" | "change_order" | "list_requests" | "get_order_detail";
 export type CartLine = { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number };
 export type CartResult = { lines: CartLine[]; subtotal: number; shippingFee: number; total: number };
 export type ProductDetail = { id: string; name: string; price: number; material: string; fit: string; care: string;
@@ -39,8 +39,14 @@ export type OrderChangeDetail = { addressId?: string; label?: string; summary?: 
 export type SavedAddress = { id: string; label: string; summary: string; isDefault: boolean };
 export type OrderSummary = { reference: string; name: string; orderedAt: string; status: string; quantity: number; total: number | null };
 export type ReturnEligibility = "eligible" | "not_delivered" | "too_late" | "already_submitted" | "review" | "canceled";
+export type RequestKind = "return" | "exchange" | "cancel" | "address" | "ticket";
+export type RequestSummary = { id: string; kind: RequestKind; reference: string | null; name: string | null; createdAt: string;
+  status: string; fee: number | null; detail: string | null };
+export type OrderDetailInfo = { size: string | null; address: string | null; paymentMethod: string | null; paidTotal: number | null };
 export type OrderResult =
   | { kind: "history"; items: OrderSummary[] }
+  | { kind: "requests"; filter: RequestKind | null; items: RequestSummary[] }
+  | { kind: "detail"; order: OrderSummary; info: OrderDetailInfo; requests: RequestSummary[] }
   | { kind: "return_eligibility"; items: (OrderSummary & { eligibility: ReturnEligibility })[] }
   | { kind: "shipment"; order: OrderSummary; carrier: string | null; trackingNumber: string | null;
       events: { occurredAt: string; location: string; description: string }[] };

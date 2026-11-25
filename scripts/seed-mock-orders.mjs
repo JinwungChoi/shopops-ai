@@ -121,6 +121,36 @@ async function seed() {
     if (saved.error) throw Error("합성 배송지를 등록하지 못했습니다.");
   }
 
+  // 접수 내역 시연용: 이미 접수된 반품 1건과 상담 문의 1건(고객별). 반품 기한이 지난 주문에 둬서 반품 가능 목록은 바뀌지 않는다.
+  // 고정 ID로 넣어 다시 실행해도 같은 행을 유지하고, 데모 스냅샷에 포함돼 매일 초기화 뒤에도 남는다.
+  const seededRequests = [
+    { email: "style-customer-a@example.com", key: "a", order: "STY-1006", ticketOrder: "STY-1007" },
+    { email: "style-customer-b@example.com", key: "b", order: "STY-2005", ticketOrder: "STY-2003" },
+  ];
+  for (const [index, request] of seededRequests.entries()) {
+    const customerId = existing.get(request.email);
+    const id = (kind) => `5eed0000-0000-4000-8000-${String(index + 1).padStart(4, "0")}${String(kind).padStart(8, "0")}`;
+    const order = await client.from("mock_orders").select("id").eq("tenant_id", tenant.data.id).eq("order_reference", request.order).single();
+    if (order.error) throw Error("접수 내역 시드용 주문을 찾지 못했습니다.");
+    const created = new Date(seedTime - 6 * day).toISOString();
+    const session = await client.from("chat_sessions").upsert({ id: id(1), tenant_id: tenant.data.id, customer_user_id: customerId,
+      token_hash: "seed-request-session-" + request.key, expires_at: created, created_at: created }, { onConflict: "id" });
+    if (session.error) throw Error("접수 내역 시드 대화를 만들지 못했습니다.");
+    const prior = await client.from("mock_return_requests").select("id").eq("tenant_id", tenant.data.id).eq("order_id", order.data.id).maybeSingle();
+    if (!prior.data) {
+      const approval = await client.from("agent_approvals").upsert({ id: id(2), tenant_id: tenant.data.id, session_id: id(1), order_id: order.data.id,
+        customer_user_id: customerId, kind: "return", reason: "change_of_mind", quantity: 1, fee: 6000, status: "confirmed",
+        created_at: created, expires_at: new Date(seedTime - 6 * day + 600_000).toISOString(), decided_at: created }, { onConflict: "id" });
+      const saved = approval.error ? approval : await client.from("mock_return_requests").upsert({ id: id(3), tenant_id: tenant.data.id,
+        order_id: order.data.id, approval_id: id(2), quantity: 1, fee: 6000, created_at: created }, { onConflict: "id" });
+      if (saved.error) throw Error("시드 반품 접수를 만들지 못했습니다.");
+    }
+    const ticket = await client.from("support_tickets").upsert({ id: id(4), tenant_id: tenant.data.id, session_id: id(1),
+      title: "배송 문의", description: "합성 시연용 상담 문의입니다.", status: "in_progress", order_reference: request.ticketOrder,
+      reason: "staff_requested", created_at: created, updated_at: created }, { onConflict: "id" });
+    if (ticket.error) throw Error("시드 상담 문의를 만들지 못했습니다.");
+  }
+
   console.log(`Style Shop 로컬 데모 고객 2명과 기본 모의 주문 ${fixtures.length + additionalOrders.length}건을 확인했습니다.`);
 
   if (process.argv.includes("--fresh-return")) {
