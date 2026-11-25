@@ -139,29 +139,34 @@ const demoChoices: { key: DemoCustomer; label: string }[] = [
 ];
 
 // 시연용 합성 고객을 버튼으로 전환한다. 전환하면 새 대화를 연다.
+// A·B가 아닌 고객으로 로그인돼 있으면 어느 버튼도 눌린 상태로 보이지 않고, 비로그인을 누르면 로그아웃한다.
+type CustomerState = { loggedIn: boolean; customer: DemoCustomer };
 function CustomerAccess({ onChange }: { onChange: () => void }) {
-  const [current, setCurrent] = useState<DemoCustomer | undefined>();
+  const [state, setState] = useState<CustomerState | undefined>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let active = true;
-    request<{ loggedIn: boolean; customer: DemoCustomer }>("/api/public/customer")
-      .then(({ customer }) => { if (active) setCurrent(customer); })
-      .catch(() => { if (active) setCurrent(null); });
+    request<CustomerState>("/api/public/customer")
+      .then((result) => { if (active) setState({ loggedIn: result.loggedIn, customer: result.customer ?? null }); })
+      .catch(() => { if (active) setState({ loggedIn: false, customer: null }); });
     return () => { active = false; };
   }, []);
 
+  const pressed = (key: DemoCustomer) => state !== undefined && (key === null ? !state.loggedIn : state.customer === key);
+
   async function choose(next: DemoCustomer) {
-    if (next === current) return;
+    if (!state || pressed(next)) return;
     setBusy(true);
     setError("");
     try {
-      if (current) await request("/api/public/customer", json("POST", { action: "logout" }));
-      const result = next
-        ? await request<{ customer: DemoCustomer }>("/api/public/customer", json("POST", { action: "demo", customer: next }))
-        : { customer: null };
-      setCurrent(result.customer);
+      if (state.loggedIn) await request("/api/public/customer", json("POST", { action: "logout" }));
+      setState({ loggedIn: false, customer: null });
+      if (next) {
+        const result = await request<CustomerState>("/api/public/customer", json("POST", { action: "demo", customer: next }));
+        setState({ loggedIn: result.loggedIn, customer: result.customer ?? null });
+      }
       onChange();
     } catch (error) {
       setError(error instanceof Error ? error.message : "고객 전환에 실패했어요.");
@@ -172,8 +177,8 @@ function CustomerAccess({ onChange }: { onChange: () => void }) {
 
   return <div className="customer-access">
     <div className="customer-switch" role="group" aria-label="데모 고객 전환">
-      {demoChoices.map((choice) => <button key={choice.label} type="button" aria-pressed={current === choice.key}
-        disabled={busy || current === undefined} onClick={() => void choose(choice.key)}>{choice.label}</button>)}
+      {demoChoices.map((choice) => <button key={choice.label} type="button" aria-pressed={pressed(choice.key)}
+        disabled={busy || state === undefined} onClick={() => void choose(choice.key)}>{choice.label}</button>)}
     </div>
     {error && <p className="error customer-error" role="alert">{error}</p>}
   </div>;
