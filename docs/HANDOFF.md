@@ -157,5 +157,7 @@ Claude Code 시작 문구는 [후속 작업 프롬프트](CLAUDE_CODE_PROMPT.md)
 - 마이그레이션: `supabase db push`(프로젝트 link 상태). 시드: `SHOP_OPS_SEED_CLOUD_HOST=lnfanpsggxmgrelivlhh.supabase.co`를 정확히 지정해야 클라우드를 허용한다. 순서는 `seed-showcase` → `seed-mock-orders` → `seed-catalog` → `demo-snapshot`, 각각 `node --env-file=.env.local --env-file=.env.cloud scripts/<이름>.mjs`.
 - 시드를 다시 넣으면 반드시 `demo-snapshot`을 다시 실행한다. 매일 04:00 KST pg_cron(`shopops-demo-reset`)이 스냅샷 상태로 되돌린다.
 - 배포: `vercel deploy --prod`. `.vercelignore`가 `.env*`를 업로드에서 뺀다. `next.config.ts`는 Vercel에서 기본 `.next`를 쓴다.
+- 함수 리전은 `vercel.json`의 `regions: ["icn1"]`(서울). 기본 `iad1`에서는 세션 생성 2.2초, 첫 단계 시작 3.0초였고, `icn1`로 옮긴 뒤 0.9초, 0.6초가 됐다.
+- 응답 시간 측정(2026-11-25, 운영): 정책 질문 약 9초 = 도구 선택 3.5초 + 정책 검색 1.0초 + 답변 생성 2.0초 + 종료 판단 2.0초. 상품 검색 약 6초. 모델은 이미 `reasoning.effort: none`이다. 다음 단축 후보: 결과가 곧 답인 도구 뒤의 종료 판단 호출 생략(약 2초, 시나리오 61개 재검증 필요), 답변 스트리밍(체감 단축).
 - 남은 운영 작업: Supabase 대시보드에서 이메일 가입 끄기(공개 키로 Auth 가입 API를 직접 부르는 경로 차단), OpenAI 프로젝트 월 한도 설정, 배포 전용 OpenAI 키로 교체.
 

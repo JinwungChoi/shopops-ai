@@ -225,9 +225,19 @@ sequenceDiagram
 | `OPENAI_CHAT_MODEL` | server | 현재 지원되는 모델명을 구성 값으로 설정 |
 | `OPENAI_EMBEDDING_MODEL` | server | `text-embedding-3-small` |
 | `PUBLIC_CHAT_RATE_LIMIT_*` | server | 제한 정책; 저장소 연동 시 인증정보 별도 |
-| `APP_BASE_URL` | server | 절대 URL/redirect 검증용 |
+| `APP_BASE_URL` | server | 절대 URL/redirect 검증용. 운영에서는 `SHOP_OPS_DEMO=1`과 함께 있어야 API가 열린다 |
+| `SHOP_OPS_BACKEND` | server | `supabase`이면 Supabase 모드, 없으면 키 없는 메모리 데모 |
+| `SHOP_OPS_PUBLIC_DEMO` | server | `1`이면 관리자 가입·로그인·업체 API 차단, 첫 화면을 고객 채팅으로 보냄 |
+| `SHOP_OPS_DAILY_ANSWER_LIMIT` | server | KST 하루 답변 총량. 없으면 제한 없음(로컬) |
+| `SHOP_OPS_DEMO_PASSWORD` | **server only** | 데모 고객 A·B 비밀번호. 브라우저는 고객 키(a/b)만 보낸다 |
 
 `.env.local`을 커밋하지 않는다. Vercel Preview/Production과 Supabase 개발/운영 DB 환경을 분리하고, 프로덕션 migration을 적용하기 전 백업/다운타임 계획을 점검한다.
+
+### 현재 공개 데모 구성 (2026-11-25)
+- Vercel Production `https://shopops-ai.vercel.app`, 함수 리전 `icn1`(서울). Supabase 클라우드도 서울(ap-northeast-2)이라 DB 왕복이 짧다. 기본 리전(`iad1`, 미국 동부)에서는 DB 호출마다 태평양을 왕복해 대화 시작이 2초 이상 걸렸다.
+- `vercel.json`에서 `framework: nextjs`와 `regions: ["icn1"]`를 고정한다. `next.config.ts`의 `.next-supabase` 분리 출력은 로컬 전용이고 Vercel에서는 기본 `.next`를 쓴다. `.vercelignore`가 `.env*`를 업로드에서 뺀다.
+- 개발 DB는 로컬 Docker Supabase, 운영 DB는 Supabase 클라우드로 분리했다. 비용·남용 방어: 분당 제한(세션·업체·전체·IP) + 하루 답변 총량 + 관리자 기능 차단. 데모 데이터는 pg_cron이 매일 04:00 KST에 스냅샷 상태로 되돌린다.
+- GitHub Actions CI는 아직 없다. 배포 전 게이트는 로컬에서 lint, typecheck, unit, pgTAP, build, e2e를 실행한다.
 
 ### CI 게이트
 `npm ci` → lint → typecheck → unit/integration (로컬 테스트 DB 필요) → `npm run build` → Preview smoke → production deploy. DB 마이그레이션과 제품 배포 순서를 고려한다. DB 시크릿이 필요한 E2E는 격리된 테스트 프로젝트에서 수행.

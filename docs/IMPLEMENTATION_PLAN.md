@@ -131,6 +131,7 @@
 - **선행:** P1-15.
 - **작업:** GitHub Actions lint/typecheck/test/build, Vercel preview/prod 환경, Supabase dev/prod 분리, migration 적용 절차, health/smoke.
 - **검수:** PR 검사 통과, 배포 주소 접속, 로그인→문서 등록→챗봇 응답; secret 미노출.
+- **현황(2026-11-25):** Vercel Production(서울 icn1)과 Supabase 클라우드(서울) 배포, 로컬/클라우드 DB 분리, `supabase db push` 마이그레이션 절차, 공개 데모 안전장치 완료. 공개 데모는 관리자 기능을 막아 두었으므로 "로그인→문서 등록"은 로컬에서 검수한다. GitHub Actions CI는 미구현.
 
 #### P1-17 README·시연 자료·성과 정리
 - **선행:** P1-16.
@@ -169,14 +170,14 @@
 다음 모두 만족해야 `Phase 1 complete`:
 
 - [ ] 로그인·업체 생성·FAQ 등록·수정·삭제·인덱싱 E2E 성공.
-- [ ] 공개 고객 상담에서 업체별 문서 검색 및 출처 표시 성공.
-- [ ] 잘 모르는 질문은 추측 없이 보류.
-- [ ] 인증/인가, RLS, 검색, 고객 세션에서 교차 테넌트 접근 차단 테스트 100% 통과.
-- [ ] 문서 버전 변경·실패·재시도·삭제 이후 stale chunk 미노출.
-- [ ] 유료 API 호출 수 제한·키 관리·비용 기록 적용.
-- [ ] 코드 품질/lint/typecheck/unit/integration/e2e 및 build 통과.
-- [ ] Vercel 배포 + Supabase 운영 환경 확인; 데모 계정과 가짜 데이터 준비.
-- [ ] README에 실제 RAG 평가 결과, 실패 사례, 개선 기록이 명시됨.
+- [x] 공개 고객 상담에서 업체별 문서 검색 및 출처 표시 성공.
+- [x] 잘 모르는 질문은 추측 없이 보류.
+- [x] 인증/인가, RLS, 검색, 고객 세션에서 교차 테넌트 접근 차단 테스트 100% 통과.
+- [x] 문서 버전 변경·실패·재시도·삭제 이후 stale chunk 미노출.
+- [ ] 유료 API 호출 수 제한·키 관리·비용 기록 적용. (호출 수 제한·키 관리 완료, 비용 기록·사용량 화면(P1-13)은 미구현)
+- [x] 코드 품질/lint/typecheck/unit/integration/e2e 및 build 통과.
+- [x] Vercel 배포 + Supabase 운영 환경 확인; 데모 계정과 가짜 데이터 준비.
+- [x] README에 실제 RAG 평가 결과, 실패 사례, 개선 기록이 명시됨.
 
 ## 6. Codex 권장 첫 세션 프롬프트
 
